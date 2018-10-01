@@ -20,12 +20,14 @@ func (d *Dropbox) List(path string) ([]*Path, error) {
 		return nil, err
 	}
 
-	isdir, err := d.isDir(path)
-	if err != nil {
-		return nil, err
-	}
-	if !isdir {
-		return nil, errors.Wrapf(ErrIsNotDir, path)
+	if path != "" {
+		isdir, err := d.isDir(path)
+		if err != nil {
+			return nil, err
+		}
+		if !isdir {
+			return nil, errors.Wrapf(ErrIsNotDir, path)
+		}
 	}
 
 	// pathsを作って返す
@@ -84,11 +86,14 @@ func (d *Dropbox) Push(path string, data *File, override bool) (err error) {
 		return err
 	}
 
-	var BigBorder int64 = 150 * 1048576
-	var Over int64 = 350 * 1073741824
+	var (
+		Border    int64  = 150 * 1048576
+		ChunkSize uint64 = uint64(Border)
+		OverSize  int64  = 350 * 1073741824
+	)
 	// 大きすぎたら返す
-	if int64(data.Size) > Over {
-		err = errors.New("data is to large. max size = " + strconv.FormatInt(Over, 10) + "byte.")
+	if int64(data.Size) > OverSize {
+		err = errors.New("data is to large. max size = " + strconv.FormatInt(OverSize, 10) + "byte.")
 		err = errors.Wrapf(err, "size=%d", data.Size)
 		return err
 	}
@@ -109,44 +114,41 @@ func (d *Dropbox) Push(path string, data *File, override bool) (err error) {
 			err = errors.Wrap(err, e.Error())
 		}
 	}()
-	client := d.Client
+
 	// 150MB以上と以下で分ける
-	if data.Size < BigBorder {
+	client := d.Client
+	if data.Size < Border {
 		_, err = client.Upload(commitinfo, data.Data)
 		if err != nil {
 			return err
 		}
 		return nil
 	} else {
-		limReader := io.LimitReader(data.Data, BigBorder)
-		i := int(data.Size / BigBorder)
-		if data.Size%BigBorder != 0 {
-			i += 1
-		}
-
+		// 最初のチャンク
+		limReader := io.LimitReader(data.Data, int64(ChunkSize))
 		sarg := dbx.NewUploadSessionStartArg()
 		res, err := client.UploadSessionStart(sarg, limReader)
 		if err != nil {
 			return err
 		}
-		i -= 1
 
-		var c *dbx.UploadSessionCursor
-		for offset := uint64(0); ; func() { i -= 1; offset += uint64(BigBorder) }() {
-			c = dbx.NewUploadSessionCursor(res.SessionId, offset)
-
-			// 最後はSessionFinish
-			if i == 1 {
-				break
-			}
+		// 最初、最後以外のチャンク
+		uploaded := ChunkSize
+		for uint64(data.Size)-uploaded > ChunkSize {
+			c := dbx.NewUploadSessionCursor(res.SessionId, uploaded)
+			limReader = io.LimitReader(data.Data, int64(ChunkSize))
 
 			aarg := dbx.NewUploadSessionAppendArg(c)
 			err := client.UploadSessionAppendV2(aarg, limReader)
 			if err != nil {
 				return err
 			}
+			uploaded += ChunkSize
 		}
 
+		// 最後のチャンク
+		limReader = io.LimitReader(data.Data, int64(ChunkSize))
+		c := dbx.NewUploadSessionCursor(res.SessionId, uploaded)
 		farg := dbx.NewUploadSessionFinishArg(c, commitinfo)
 		_, err = client.UploadSessionFinish(farg, limReader)
 		return err
@@ -222,10 +224,14 @@ func (d *Dropbox) listFolder(dirpath string) ([]dbx.IsMetadata, error) {
 // pathをスラッシュにしたり、
 // clientのnilチェックをしたり。
 func (d *Dropbox) pre(path *string) error {
-	client := d.Client
-	*path = filepath.ToSlash(*path)
-	if client == nil {
+	if d.Client == nil {
 		return errors.Wrap(ErrStorageStatus, "client is nil")
+	}
+
+	*path = filepath.ToSlash(*path)
+	// ルートディレクトリは空文字で表現する
+	if *path == "/" {
+		*path = ""
 	}
 	return nil
 }

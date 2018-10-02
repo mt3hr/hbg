@@ -1,9 +1,9 @@
 package hbg
 
 import (
+	"bufio"
 	"io"
 	"path/filepath"
-	"strconv"
 	"time"
 
 	"github.com/dropbox/dropbox-sdk-go-unofficial/dropbox"
@@ -11,10 +11,90 @@ import (
 	"github.com/pkg/errors"
 )
 
+// dropboxのラッパーです。
+// ModTimeは秒まで丸められ、LocaleはUTCとなります。
+// 比較するときにはTimeToDropbox関数を使ってください。
 type Dropbox struct {
 	Client dbx.Client
 }
 
+// 時刻をDropboxの形式に丸めます。
+// utcの秒までの情報です。
+func TimeToDropbox(t time.Time) time.Time {
+	return t.In(time.UTC).Truncate(time.Second)
+}
+
+const (
+	d_ChunkSize = 150 * 1048576    // 分割アップロードするかどうかの境界
+	d_MaxSize   = 350 * 1073741824 // アップロード可能最大サイズ
+)
+
+func (d *Dropbox) Push(path string, data *File) (err error) {
+	if err = d.pre(&path); err != nil {
+		return err
+	}
+
+	// 大きすぎたら返す
+	if data.Size > d_MaxSize {
+		err = errors.New("can not push to dropbox.")
+		err = errors.Wrapf(err, "data is to large. max size is %d byte", d_MaxSize)
+		err = errors.Wrapf(err, "size=%d", data.Size)
+		return err
+	}
+
+	// commitinfo。 timeはutcにしてから秒で丸める
+	commitinfo := dbx.NewCommitInfo(path)
+	commitinfo.ClientModified = TimeToDropbox(data.ModTime)
+	commitinfo.Autorename = false
+	commitinfo.Mode = &dbx.WriteMode{Tagged: dropbox.Tagged{dbx.WriteModeOverwrite}}
+
+	// 呼び出されるたびに次のチャンクをReaderとして返します
+	getNextChunk := func() io.Reader {
+		chunk := io.LimitReader(data.Data, d_ChunkSize)
+		if data.Size > int64(bufSize) {
+			chunk = bufio.NewReader(chunk)
+		}
+		return chunk
+	}
+	defer deh(func() error { return data.Data.Close() }, &err)
+
+	// ChunkSize(150MB)以上と以下で分ける
+	client := d.Client
+	if data.Size < d_ChunkSize {
+		_, err = client.Upload(commitinfo, getNextChunk())
+		if err != nil {
+			return err
+		}
+		return nil
+	} else {
+		// 最初のチャンク
+		sarg := dbx.NewUploadSessionStartArg()
+		res, err := client.UploadSessionStart(sarg, getNextChunk())
+		if err != nil {
+			return err
+		}
+
+		// 最初、最後以外のチャンク
+		uploaded := uint64(d_ChunkSize)
+		datasize := uint64(data.Size)
+		for datasize-uploaded > d_ChunkSize {
+			c := dbx.NewUploadSessionCursor(res.SessionId, uploaded)
+			aarg := dbx.NewUploadSessionAppendArg(c)
+
+			err := client.UploadSessionAppendV2(aarg, getNextChunk())
+			if err != nil {
+				return err
+			}
+			uploaded += d_ChunkSize
+		}
+
+		// 最後のチャンク
+		c := dbx.NewUploadSessionCursor(res.SessionId, uploaded)
+		farg := dbx.NewUploadSessionFinishArg(c, commitinfo)
+		_, err = client.UploadSessionFinish(farg, getNextChunk())
+		return err
+	}
+}
 func (d *Dropbox) List(path string) ([]*Path, error) {
 	if err := d.pre(&path); err != nil {
 		return nil, err
@@ -45,7 +125,6 @@ func (d *Dropbox) List(path string) ([]*Path, error) {
 	}
 	return paths, nil
 }
-
 func (d *Dropbox) Stat(path string) (*Path, error) {
 	if err := d.pre(&path); err != nil {
 		return nil, err
@@ -56,7 +135,6 @@ func (d *Dropbox) Stat(path string) (*Path, error) {
 	}
 	return metadataToPath(metadata)
 }
-
 func (d *Dropbox) Get(path string) (*File, error) {
 	if err := d.pre(&path); err != nil {
 		return nil, err
@@ -79,82 +157,6 @@ func (d *Dropbox) Get(path string) (*File, error) {
 		Size:    int64(metadata.Size),
 	}, nil
 }
-
-// overrideしなかった場合、エラーを返しますが、それはErrAlreadyExistを返しません。
-func (d *Dropbox) Push(path string, data *File, override bool) (err error) {
-	if err = d.pre(&path); err != nil {
-		return err
-	}
-
-	var (
-		Border    int64  = 150 * 1048576
-		ChunkSize uint64 = uint64(Border)
-		OverSize  int64  = 350 * 1073741824
-	)
-	// 大きすぎたら返す
-	if int64(data.Size) > OverSize {
-		err = errors.New("data is to large. max size = " + strconv.FormatInt(OverSize, 10) + "byte.")
-		err = errors.Wrapf(err, "size=%d", data.Size)
-		return err
-	}
-
-	// commitinfo。 timeはutcにしてから秒で丸める
-	commitinfo := dbx.NewCommitInfo(path)
-	commitinfo.ClientModified = data.ModTime.In(time.UTC).Truncate(time.Second)
-	commitinfo.Autorename = false
-	// override判定
-	if override {
-		overridemode := &dbx.WriteMode{Tagged: dropbox.Tagged{dbx.WriteModeOverwrite}}
-		commitinfo.Mode = overridemode
-	}
-
-	defer func() {
-		e := data.Data.Close()
-		if e != nil {
-			err = errors.Wrap(err, e.Error())
-		}
-	}()
-
-	// 150MB以上と以下で分ける
-	client := d.Client
-	if data.Size < Border {
-		_, err = client.Upload(commitinfo, data.Data)
-		if err != nil {
-			return err
-		}
-		return nil
-	} else {
-		// 最初のチャンク
-		limReader := io.LimitReader(data.Data, int64(ChunkSize))
-		sarg := dbx.NewUploadSessionStartArg()
-		res, err := client.UploadSessionStart(sarg, limReader)
-		if err != nil {
-			return err
-		}
-
-		// 最初、最後以外のチャンク
-		uploaded := ChunkSize
-		for uint64(data.Size)-uploaded > ChunkSize {
-			c := dbx.NewUploadSessionCursor(res.SessionId, uploaded)
-			limReader = io.LimitReader(data.Data, int64(ChunkSize))
-
-			aarg := dbx.NewUploadSessionAppendArg(c)
-			err := client.UploadSessionAppendV2(aarg, limReader)
-			if err != nil {
-				return err
-			}
-			uploaded += ChunkSize
-		}
-
-		// 最後のチャンク
-		limReader = io.LimitReader(data.Data, int64(ChunkSize))
-		c := dbx.NewUploadSessionCursor(res.SessionId, uploaded)
-		farg := dbx.NewUploadSessionFinishArg(c, commitinfo)
-		_, err = client.UploadSessionFinish(farg, limReader)
-		return err
-	}
-	return nil
-}
 func (d *Dropbox) Delete(path string) error {
 	if err := d.pre(&path); err != nil {
 		return err
@@ -162,7 +164,6 @@ func (d *Dropbox) Delete(path string) error {
 	_, err := d.Client.DeleteV2(dbx.NewDeleteArg(path))
 	return err
 }
-
 func (d *Dropbox) MkDir(path string) error {
 	if err := d.pre(&path); err != nil {
 		return err
@@ -170,7 +171,6 @@ func (d *Dropbox) MkDir(path string) error {
 	_, err := d.Client.CreateFolder(dbx.NewCreateFolderArg(path))
 	return err
 }
-
 func (d *Dropbox) Mv(from, to string) error {
 	if _, err := d.Stat(to); err == nil {
 		return errors.Wrap(ErrAlreadyExists, to)

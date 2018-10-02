@@ -1,6 +1,7 @@
 package hbg
 
 import (
+	"bufio"
 	"io"
 	"io/ioutil"
 	"log"
@@ -73,20 +74,10 @@ func (l *LocalFilesystem) Get(path string) (*File, error) {
 
 // 親ディレクトリは自動的に作成されます。
 // modTimeの更新時にエラーが発生したときは、標準のロガーにPrintfして処理を続行します。
-func (l *LocalFilesystem) Push(path string, data *File, override bool) error {
-	// overrideの判定
-	if info, err := os.Stat(path); err == nil {
-		if info.IsDir() {
-			return errors.Wrapf(ErrPath, "%s is already exist. and is dir", path)
-		}
-		if !override {
-			return errors.Wrap(ErrAlreadyExists, path)
-		}
-	}
-
+func (l *LocalFilesystem) Push(path string, data *File) (err error) {
 	// 親ディレクトリを作成する
 	dir := filepath.Dir(path)
-	err := os.MkdirAll(dir, os.ModePerm)
+	err = os.MkdirAll(dir, os.ModePerm)
 	if err != nil {
 		return err
 	}
@@ -96,9 +87,19 @@ func (l *LocalFilesystem) Push(path string, data *File, override bool) error {
 	if err != nil {
 		return err
 	}
-	defer file.Close()
+	defer deh(func() error { return file.Close() }, &err)
+	defer deh(func() error { return data.Data.Close() }, &err)
 
-	_, err = io.Copy(file, data.Data)
+	var w io.Writer = file
+	var r io.Reader = data.Data
+	if data.Size > int64(bufSize) {
+		bw := bufio.NewWriter(w)
+		defer deh(func() error { return bw.Flush() }, &err)
+		w = bw
+		r = bufio.NewReader(r)
+	}
+
+	_, err = io.Copy(w, r)
 	if err != nil {
 		return err
 	}

@@ -1,6 +1,7 @@
 package hbg
 
 import (
+	"bufio"
 	"io"
 	"time"
 
@@ -38,8 +39,8 @@ type Storage interface {
 	// 書き込み先は第一引数のpathが使われ、第二引数のdata.Nameは無視されます。
 	// 親ディレクトリが存在しなければ自動的に作成します。
 	// 特に断りがなければModTimeもコピーします。
-	// overrideがfalseのときにすでに存在していた場合、ErrAlreadyExistsが飛びます
-	Push(path string, data *File, override bool) error
+	// pushの成功失敗にかかわらず、data.DataはCloseされます。
+	Push(path string, data *File) error
 
 	// pathの示す位置に存在するファイルを削除します。
 	// 対象がディレクトリの場合、それ以下のファイルも削除されます。
@@ -67,4 +68,39 @@ type File struct {
 	Data    io.ReadCloser
 	ModTime time.Time
 	Size    int64
+}
+
+// このサイズより大きいデータのアレはbufio.Reader,Writerを使います。
+var bufSize = bufio.NewReader(nil).Size() * 3
+
+/*
+ DeferErrorHandlerです。
+ Deferで叩く関数がerrorを投げ得るときはこれに投げてください。
+ それがerrorを返したとき、
+ errがnilであればerrに代入します。
+ errがnilでなければ元のerrorにmargeして返します。
+
+ 例えば、以下のようにして使います。
+  func WriteHogeToFile(filename string) (err error) {
+    file, _ := os.Open(filename)
+    err = file.Write([]byte("hoge")
+    if err != nil {
+        return err
+    }
+    defer deh(func() error{
+		return file.Close()
+	}, &err)
+	// 以下errorが発生しえる処理
+  }
+*/
+func deh(f func() error, err *error) {
+	e := f()
+	if e == nil {
+		return
+	}
+	if *err == nil {
+		*err = e
+	} else {
+		*err = errors.Wrapf(e, "and err = %+v", e)
+	}
 }

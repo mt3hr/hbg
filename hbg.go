@@ -173,7 +173,7 @@ func (d *Dropbox) List(path string) (map[*FileInfo]interface{}, error) {
 		return nil, err
 	}
 	fileInfos := map[*FileInfo]interface{}{}
-	for _, metadata := range metadatas {
+	for metadata := range metadatas {
 		fileInfo, err := metadataToFileInfo(metadata)
 		if err != nil {
 			return nil, err
@@ -196,19 +196,25 @@ func (d *Dropbox) isDir(path string) (bool, error) {
 	}
 	return fileInfo.IsDir, nil
 }
-func (d *Dropbox) listFolder(dirpath string) ([]dbx.IsMetadata, error) {
+func (d *Dropbox) listFolder(dirpath string) (map[dbx.IsMetadata]interface{}, error) {
 	client := d.Client
 	res, err := client.ListFolder(dbx.NewListFolderArg(dirpath))
 	if err != nil {
 		return nil, err
 	}
-	metadatas := res.Entries
+	metadatas := map[dbx.IsMetadata]interface{}{}
+	for _, metadata := range res.Entries {
+		metadatas[metadata] = struct{}{}
+	}
+
 	for res.HasMore {
 		res, err = client.ListFolderContinue(dbx.NewListFolderContinueArg(res.Cursor))
 		if err != nil {
 			return nil, err
 		}
-		metadatas = append(metadatas, res.Entries...)
+		for _, metadata := range res.Entries {
+			metadatas[metadata] = struct{}{}
+		}
 	}
 	return metadatas, nil
 }

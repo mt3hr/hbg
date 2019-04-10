@@ -137,18 +137,10 @@ func fastCopy(srcStorage, destStorage hbg.Storage, srcPath, destDirPath string, 
 
 		// ディレクトリだったら再帰的に
 		if srcFileInfo.IsDir {
-			chilsInfos, err := srcStorage.List(srcPath)
+			childDestDir := filepath.ToSlash(filepath.Join(destDirPath, srcFileInfo.Name))
+			err := fastCopy(srcStorage, destStorage, srcFileInfo.Path, childDestDir, updateDuration, ignores, worker)
 			if err != nil {
 				return err
-			}
-			for childInfo := range chilsInfos {
-				if childInfo.IsDir {
-					childDestDir := filepath.ToSlash(filepath.Join(destDirPath, childInfo.Name))
-					err := fastCopy(srcStorage, destStorage, childInfo.Path, childDestDir, updateDuration, ignores, worker)
-					if err != nil {
-						return err
-					}
-				}
 			}
 			continue
 		}

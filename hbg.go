@@ -94,6 +94,7 @@ func (l *LocalFileSystem) Get(path string) (*File, error) {
 		Size:    info.Size(),
 	}, nil
 }
+
 func (l *LocalFileSystem) Push(dirPath string, data *File) error {
 	err := l.MkDir(dirPath)
 	if err != nil {
@@ -196,6 +197,7 @@ func (d *Dropbox) isDir(path string) (bool, error) {
 	}
 	return fileInfo.IsDir, nil
 }
+
 func (d *Dropbox) listFolder(dirpath string) (map[dbx.IsMetadata]interface{}, error) {
 	client := d.Client
 	res, err := client.ListFolder(dbx.NewListFolderArg(dirpath))
@@ -218,6 +220,7 @@ func (d *Dropbox) listFolder(dirpath string) (map[dbx.IsMetadata]interface{}, er
 	}
 	return metadatas, nil
 }
+
 func metadataToFileInfo(metadata dbx.IsMetadata) (*FileInfo, error) {
 	switch metadata.(type) {
 	case *dbx.FolderMetadata:
@@ -253,6 +256,7 @@ func (d *Dropbox) Stat(path string) (*FileInfo, error) {
 	}
 	return metadataToFileInfo(metadata)
 }
+
 func (d *Dropbox) Get(path string) (*File, error) {
 	if err := d.pre(&path); err != nil {
 		return nil, err
@@ -277,6 +281,7 @@ func (d *Dropbox) Get(path string) (*File, error) {
 		Size:    int64(metadata.Size),
 	}, nil
 }
+
 func (d *Dropbox) Push(dirPath string, data *File) error {
 	path := filepath.ToSlash(filepath.Join(dirPath, data.Name))
 	if err := d.pre(&path); err != nil {
@@ -357,7 +362,6 @@ func (d *Dropbox) MkDir(path string) error {
 
 	_, err := d.Client.CreateFolderV2(dbx.NewCreateFolderArg(path))
 	return err
-
 }
 
 func (d *Dropbox) Move(srcPath, destPath string) error {

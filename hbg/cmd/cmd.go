@@ -26,12 +26,10 @@ var (
 		configFile string
 	}{}
 
-	cfg = &Config{}
+	cfg = &struct {
+		DropboxToken string
+	}{}
 )
-
-type Config struct {
-	DropboxToken string
-}
 
 func init() {
 	rootCmd.AddCommand(copyCmd)

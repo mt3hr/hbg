@@ -9,9 +9,9 @@ import (
 	"time"
 
 	"bitbucket.org/mt3hr/hbg"
-	"github.com/dropbox/dropbox-sdk-go-unofficial/dropbox"
 	"github.com/spf13/cobra"
 
+	"github.com/dropbox/dropbox-sdk-go-unofficial/dropbox"
 	dbx "github.com/dropbox/dropbox-sdk-go-unofficial/dropbox/files"
 )
 
@@ -53,6 +53,7 @@ func init() {
 	copyCmd.PreRun = func(_ *cobra.Command, args []string) {
 		srcInfo, destInfo := args[0], args[1]
 
+		// コロンで区切って、前がstorageタイプ、後がpath
 		srcSplit := strings.SplitN(srcInfo, ":", 2)
 		copyOpt.srcStorage = srcSplit[0]
 		copyOpt.srcPath = srcSplit[1]
@@ -64,7 +65,7 @@ func init() {
 		// copyOpt.srcStorageとcopyOpt.destStorageの整合性チェック
 		for _, storage := range []string{copyOpt.srcStorage, copyOpt.destStorage} {
 			switch storage {
-			case "local", "dropbox":
+			case st_local, st_dropbox:
 			default:
 				err := fmt.Errorf("ストレージの種類が変です。%s", storage)
 				panic(err)
@@ -72,29 +73,36 @@ func init() {
 		}
 	}
 }
+
+// storageType
+const (
+	st_local   = "local"
+	st_dropbox = "dropbox"
+)
+
 func runCopy(_ *cobra.Command, _ []string) {
 	var srcStorage, destStorage hbg.Storage
 	switch copyOpt.srcStorage {
-	case "local":
+	case st_local:
 		srcStorage = &hbg.LocalFileSystem{}
-	case "dropbox":
+	case st_dropbox:
 		client := dbx.New(dropbox.Config{Token: cfg.DropboxToken})
 		srcStorage = &hbg.Dropbox{client}
 	}
 	switch copyOpt.destStorage {
-	case "local":
+	case st_local:
 		destStorage = &hbg.LocalFileSystem{}
-	case "dropbox":
+	case st_dropbox:
 		client := dbx.New(dropbox.Config{Token: cfg.DropboxToken})
 		destStorage = &hbg.Dropbox{client}
 	}
 
-	err := fastCopy(srcStorage, destStorage, copyOpt.srcPath, copyOpt.destDirPath, copyOpt.updateDuration, copyOpt.ignore, copyOpt.worker)
+	err := copy(srcStorage, destStorage, copyOpt.srcPath, copyOpt.destDirPath, copyOpt.updateDuration, copyOpt.ignore, copyOpt.worker)
 	if err != nil {
 		panic(err)
 	}
 }
-func fastCopy(srcStorage, destStorage hbg.Storage, srcPath, destDirPath string, updateDuration time.Duration, ignores []string, worker int) error {
+func copy(srcStorage, destStorage hbg.Storage, srcPath, destDirPath string, updateDuration time.Duration, ignores []string, worker int) error {
 	// どちらもディレクトリの場合
 	srcFileInfos, err := srcStorage.List(srcPath)
 	if err != nil {
@@ -138,7 +146,7 @@ func fastCopy(srcStorage, destStorage hbg.Storage, srcPath, destDirPath string, 
 		// ディレクトリだったら再帰的に
 		if srcFileInfo.IsDir {
 			childDestDir := filepath.ToSlash(filepath.Join(destDirPath, srcFileInfo.Name))
-			err := fastCopy(srcStorage, destStorage, srcFileInfo.Path, childDestDir, updateDuration, ignores, worker)
+			err := copy(srcStorage, destStorage, srcFileInfo.Path, childDestDir, updateDuration, ignores, worker)
 			if err != nil {
 				return err
 			}
@@ -180,6 +188,7 @@ func fastCopy(srcStorage, destStorage hbg.Storage, srcPath, destDirPath string, 
 	wg.Wait()
 	return nil
 }
+
 func copyFileWorker(q <-chan *copyFileArg, wg *sync.WaitGroup) {
 	defer wg.Done()
 	for {

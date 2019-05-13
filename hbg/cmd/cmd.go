@@ -8,12 +8,13 @@ import (
 	"github.com/mitchellh/go-homedir"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+	errors "golang.org/x/xerrors"
 )
 
 func Execute() {
 	err := rootCmd.Execute()
 	if err != nil {
-		println(err.Error())
+		log.Fatal(err)
 	}
 }
 
@@ -40,6 +41,7 @@ func init() {
 	rootCmd.PersistentPreRun = func(_ *cobra.Command, _ []string) {
 		err := loadConfig()
 		if err != nil {
+			err = errors.Errorf("failed to load config file: %w", err)
 			log.Fatal(err)
 		}
 	}
@@ -50,16 +52,33 @@ func init() {
 // そうでなければ、実行ファイルの親ディレクトリ、カレントディレクトリ、ホームディレクトリの順に、
 // configFileNameなファイルを探索して読み込みます。
 func loadConfig() error {
+	///////////////////////////////////////////////////////////////
+	// ここから
+	///////////////////////////////////////////////////////////////
+	configOpt := rootOpt.configFile
+	config := cfg
+	configName := "hbg_config"
+	configExt := ".yaml"
+	createDefaultConfig := func() *viper.Viper {
+		v := viper.New()
+		v.Set("dropboxtoken", "")
+		return v
+	}
+	///////////////////////////////////////////////////////////////
+	// ここまで
+	///////////////////////////////////////////////////////////////
+
 	v := viper.New()
-	if rootOpt.configFile != "" {
+	if configOpt != "" {
 		// コンフィグファイルが明示的に指定された場合はそれを
-		v.SetConfigFile(rootOpt.configFile)
+		v.SetConfigFile(configOpt)
 	} else {
 		// 実行ファイルの親ディレクトリ、カレントディレクトリ、ホームディレクトリの順に
-		v.SetConfigName("hbg_config")
+		v.SetConfigName(configName)
 		exe, err := os.Executable()
 		if err != nil {
-			log.Printf("error: err = %+v\n", err)
+			err = errors.Errorf("failed to get executable file path: %w", err)
+			log.Printf(err.Error())
 		} else {
 			v.AddConfigPath(filepath.Dir(exe))
 		}
@@ -68,7 +87,8 @@ func loadConfig() error {
 
 		home, err := homedir.Dir()
 		if err != nil {
-			log.Printf("error: err = %+v\n", err)
+			err = errors.Errorf("failed to get user home directory: %w", err)
+			log.Printf(err.Error())
 		} else {
 			v.AddConfigPath(home)
 		}
@@ -77,25 +97,31 @@ func loadConfig() error {
 	// 読み込んでcfgを作成する
 	err := v.ReadInConfig()
 	if err != nil {
-		// コンフィグファイルが存在しない場合はホームディレクトリに作成する.
+		// コンフィグファイルが存在しない場合はホームディレクトリに作成する
+		// なければカレントディレクトリ
+		configDir := ""
 		home, err := homedir.Dir()
 		if err != nil {
-			log.Printf("error: err = %+v\n", err)
+			err = errors.Errorf("failed to get user home directory: %w", err)
+			log.Printf(err.Error())
+			configDir = "."
 		} else {
-			v.AddConfigPath(home)
+			configDir = home
 		}
 
-		v = viper.New()
-		v.Set("dropboxtoken", "")
-		v.SetConfigFile(filepath.Join(home, "hbg_config.yaml"))
+		v = createDefaultConfig()
+		configFileName := filepath.Join(configDir, configName+configExt)
+		v.SetConfigFile(configFileName)
 		err = v.WriteConfig()
 		if err != nil {
-			panic(err)
+			err = errors.Errorf("failed to write config to %s: %w", configFileName, err)
+			return err
 		}
 	}
 
-	err = v.Unmarshal(cfg)
+	err = v.Unmarshal(config)
 	if err != nil {
+		err = errors.Errorf("failed unmarshal config file: %w", err)
 		return err
 	}
 	return nil

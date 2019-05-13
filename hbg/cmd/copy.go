@@ -10,6 +10,7 @@ import (
 
 	"bitbucket.org/mt3hr/hbg"
 	"github.com/spf13/cobra"
+	errors "golang.org/x/xerrors"
 
 	"github.com/dropbox/dropbox-sdk-go-unofficial/dropbox"
 	dbx "github.com/dropbox/dropbox-sdk-go-unofficial/dropbox/files"
@@ -67,8 +68,8 @@ func init() {
 			switch storage {
 			case st_local, st_dropbox:
 			default:
-				err := fmt.Errorf("ストレージの種類が変です。%s", storage)
-				panic(err)
+				err := fmt.Errorf("unknown storage type. %s", storage)
+				log.Fatal(err)
 			}
 		}
 	}
@@ -99,13 +100,15 @@ func runCopy(_ *cobra.Command, _ []string) {
 
 	err := copy(srcStorage, destStorage, copyOpt.srcPath, copyOpt.destDirPath, copyOpt.updateDuration, copyOpt.ignore, copyOpt.worker)
 	if err != nil {
-		panic(err)
+		err = errors.Errorf("failed to copy file from %s:%s to %s:%s: %w", srcStorage, copyOpt.srcPath, destStorage, copyOpt.destDirPath, err)
+		log.Fatal(err)
 	}
 }
 func copy(srcStorage, destStorage hbg.Storage, srcPath, destDirPath string, updateDuration time.Duration, ignores []string, worker int) error {
 	// どちらもディレクトリの場合
 	srcFileInfos, err := srcStorage.List(srcPath)
 	if err != nil {
+		err = errors.Errorf("failed to list directory %s:%s: %w", srcStorage, srcPath, err)
 		return err
 	}
 
@@ -114,10 +117,12 @@ func copy(srcStorage, destStorage hbg.Storage, srcPath, destDirPath string, upda
 	if err != nil {
 		err = destStorage.MkDir(destDirPath)
 		if err != nil {
+			err = errors.Errorf("failed to create directory %s:%s: %w", destStorage, destDirPath, err)
 			return err
 		}
 		destFileInfos, err = destStorage.List(destDirPath)
 		if err != nil {
+			err = errors.Errorf("failed to list directory %s:%s: %w", destStorage, destDirPath, err)
 			return err
 		}
 	}
@@ -198,7 +203,8 @@ func copyFileWorker(q <-chan *copyFileArg, wg *sync.WaitGroup) {
 		}
 		err := copyFile(arg.srcStorage, arg.destStorage, arg.srcFilePath, arg.destDirPath)
 		if err != nil {
-			log.Printf("error: %+v\n", err)
+			err = errors.Errorf("failed to copy file from %s:%s to %s:%s: %w", arg.srcStorage, arg.srcFilePath, arg.destStorage, arg.destDirPath, err)
+			log.Printf("%s\n", err)
 		}
 	}
 }
@@ -214,6 +220,7 @@ func copyFile(srcStorage, destStorage hbg.Storage, srcFilePath, destDirPath stri
 	fmt.Printf("copy %s:%s > %s:%s\n", srcStorage.Type(), srcFilePath, destStorage.Type(), destDirPath)
 	file, err := srcStorage.Get(srcFilePath)
 	if err != nil {
+		err = errors.Errorf("failed to get %s:%s : %w", srcStorage, srcFilePath, err)
 		return err
 	}
 	defer file.Data.Close()

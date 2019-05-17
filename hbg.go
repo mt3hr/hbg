@@ -16,21 +16,28 @@ import (
 
 type Storage interface {
 	List(path string) (map[*FileInfo]interface{}, error)
+
+	// 存在しなかった場合はエラーを返します。
 	Stat(path string) (*FileInfo, error)
 
+	// 存在しなかった場合はエラーを返します。
 	Get(path string) (*File, error)
+
+	// 親ディレクトリを作成し、ファイルを作成します。
+	// すでにファイルが存在する場合は上書きします。
 	Push(dirPath string, data *File) error
 	Delete(path string) error
 	MkDir(path string) error
 	// Move(srcPath, destPath string) error
 	Type() string
+	//TODO Name() string
 }
 
 type FileInfo struct {
-	Path  string
+	Path  string // ファイルの存在するpath。filepath.Abs
 	IsDir bool
 
-	Name    string
+	Name    string // ファイル名。filepath.Base
 	LastMod time.Time
 	Size    int64
 }
@@ -38,7 +45,7 @@ type FileInfo struct {
 type File struct {
 	Data io.ReadCloser
 
-	Name    string
+	Name    string // ファイル名。filepath.Base
 	LastMod time.Time
 	Size    int64
 }

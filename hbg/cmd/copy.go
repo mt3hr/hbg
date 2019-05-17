@@ -159,7 +159,7 @@ func copy(srcStorage, destStorage hbg.Storage, srcPath, destDirPath string, upda
 		}
 
 		// ファイルで、
-		// 最終更新時刻の差がそれ未満だったらスキップ
+		// 最終更新時刻の差がそれ未満かつ、ファイルサイズが同一だったらスキップ
 		for destFileInfo := range destFileInfos {
 			if srcFileInfo.Name == destFileInfo.Name {
 				srcTimeUTC := srcFileInfo.LastMod.UTC()
@@ -170,7 +170,8 @@ func copy(srcStorage, destStorage hbg.Storage, srcPath, destDirPath string, upda
 				if d < 0 {
 					d *= int64(-1)
 				}
-				if d <= int64(updateDuration) {
+				if d <= int64(updateDuration) &&
+					srcFileInfo.Size == destFileInfo.Size {
 					skip = true
 					break
 				}

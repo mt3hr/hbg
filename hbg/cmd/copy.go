@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"log"
+	"path"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -204,8 +205,29 @@ func copyFileWorker(q <-chan *copyFileArg, wg *sync.WaitGroup) {
 		}
 		err := copyFile(arg.srcStorage, arg.destStorage, arg.srcFilePath, arg.destDirPath)
 		if err != nil {
-			err = errors.Errorf("failed to copy file from %s:%s to %s:%s: %w", arg.srcStorage, arg.srcFilePath, arg.destStorage, arg.destDirPath, err)
+			err = errors.Errorf("failed to copy file from %s:%s to %s:%s: %w", arg.srcStorage, arg.srcFilePath, arg.destStorage, arg.destDirPath, err) //TODO srcStorage, destStorageは文字列じゃないよ
 			log.Printf("%s\n", err)
+
+			// 失敗したらコピー先ファイルを削除する
+			err = func() error {
+				srcFile, err := arg.srcStorage.Stat(arg.srcFilePath)
+				if err != nil {
+					err = errors.Errorf("failed to get stat %s from %s: %w", arg.srcFilePath, arg.srcStorage, err)
+					return err
+				}
+				destFilePath := path.Join(arg.destDirPath, srcFile.Name)
+
+				err = arg.destStorage.Delete(destFilePath)
+				if err != nil {
+					err = errors.Errorf("failed to delete to %s:%s: %w", arg.destStorage, destFilePath, err)
+					return err
+				}
+				return nil
+			}()
+			if err != nil {
+				err = errors.Errorf("failed to delete copy failed file: %w", err)
+				log.Printf("%s\n", err)
+			}
 		}
 	}
 }
@@ -225,5 +247,10 @@ func copyFile(srcStorage, destStorage hbg.Storage, srcFilePath, destDirPath stri
 		return err
 	}
 	defer file.Data.Close()
-	return destStorage.Push(destDirPath, file)
+	err = destStorage.Push(destDirPath, file)
+	if err != nil {
+		err = errors.Errorf("failed to push from %s:%s to %s:%s : %w", srcStorage, srcFilePath, destStorage, destDirPath, err)
+		return err
+	}
+	return nil
 }

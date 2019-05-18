@@ -101,7 +101,7 @@ func runCopy(_ *cobra.Command, _ []string) {
 
 	err := copy(srcStorage, destStorage, copyOpt.srcPath, copyOpt.destDirPath, copyOpt.updateDuration, copyOpt.ignore, copyOpt.worker)
 	if err != nil {
-		err = errors.Errorf("failed to copy file from %s:%s to %s:%s: %w", srcStorage, copyOpt.srcPath, destStorage, copyOpt.destDirPath, err)
+		err = errors.Errorf("failed to copy file from %s:%s to %s:%s: %w", srcStorage.Type(), copyOpt.srcPath, destStorage.Type(), copyOpt.destDirPath, err)
 		log.Fatal(err)
 	}
 }
@@ -109,7 +109,7 @@ func copy(srcStorage, destStorage hbg.Storage, srcPath, destDirPath string, upda
 	// どちらもディレクトリの場合
 	srcFileInfos, err := srcStorage.List(srcPath)
 	if err != nil {
-		err = errors.Errorf("failed to list directory %s:%s: %w", srcStorage, srcPath, err)
+		err = errors.Errorf("failed to list directory %s:%s: %w", srcStorage.Type(), srcPath, err)
 		return err
 	}
 
@@ -118,12 +118,12 @@ func copy(srcStorage, destStorage hbg.Storage, srcPath, destDirPath string, upda
 	if err != nil {
 		err = destStorage.MkDir(destDirPath)
 		if err != nil {
-			err = errors.Errorf("failed to create directory %s:%s: %w", destStorage, destDirPath, err)
+			err = errors.Errorf("failed to create directory %s:%s: %w", destStorage.Type(), destDirPath, err)
 			return err
 		}
 		destFileInfos, err = destStorage.List(destDirPath)
 		if err != nil {
-			err = errors.Errorf("failed to list directory %s:%s: %w", destStorage, destDirPath, err)
+			err = errors.Errorf("failed to list directory %s:%s: %w", destStorage.Type(), destDirPath, err)
 			return err
 		}
 	}
@@ -205,21 +205,21 @@ func copyFileWorker(q <-chan *copyFileArg, wg *sync.WaitGroup) {
 		}
 		err := copyFile(arg.srcStorage, arg.destStorage, arg.srcFilePath, arg.destDirPath)
 		if err != nil {
-			err = errors.Errorf("failed to copy file from %s:%s to %s:%s: %w", arg.srcStorage, arg.srcFilePath, arg.destStorage, arg.destDirPath, err) //TODO srcStorage, destStorageは文字列じゃないよ
+			err = errors.Errorf("failed to copy file from %s:%s to %s:%s: %w", arg.srcStorage.Type(), arg.srcFilePath, arg.destStorage.Type(), arg.destDirPath, err)
 			log.Printf("%s\n", err)
 
 			// 失敗したらコピー先ファイルを削除する
 			err = func() error {
 				srcFile, err := arg.srcStorage.Stat(arg.srcFilePath)
 				if err != nil {
-					err = errors.Errorf("failed to get stat %s from %s: %w", arg.srcFilePath, arg.srcStorage, err)
+					err = errors.Errorf("failed to get stat %s from %s: %w", arg.srcFilePath, arg.srcStorage.Type(), err)
 					return err
 				}
 				destFilePath := path.Join(arg.destDirPath, srcFile.Name)
 
 				err = arg.destStorage.Delete(destFilePath)
 				if err != nil {
-					err = errors.Errorf("failed to delete to %s:%s: %w", arg.destStorage, destFilePath, err)
+					err = errors.Errorf("failed to delete to %s:%s: %w", arg.destStorage.Type(), destFilePath, err)
 					return err
 				}
 				return nil
@@ -243,13 +243,13 @@ func copyFile(srcStorage, destStorage hbg.Storage, srcFilePath, destDirPath stri
 	fmt.Printf("copy %s:%s > %s:%s\n", srcStorage.Type(), srcFilePath, destStorage.Type(), destDirPath)
 	file, err := srcStorage.Get(srcFilePath)
 	if err != nil {
-		err = errors.Errorf("failed to get %s:%s : %w", srcStorage, srcFilePath, err)
+		err = errors.Errorf("failed to get %s:%s : %w", srcStorage.Type(), srcFilePath, err)
 		return err
 	}
 	defer file.Data.Close()
 	err = destStorage.Push(destDirPath, file)
 	if err != nil {
-		err = errors.Errorf("failed to push from %s:%s to %s:%s : %w", srcStorage, srcFilePath, destStorage, destDirPath, err)
+		err = errors.Errorf("failed to push from %s:%s to %s:%s : %w", srcStorage.Type(), srcFilePath, destStorage.Type(), destDirPath, err)
 		return err
 	}
 	return nil

@@ -6,11 +6,13 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
+	"path"
 	"path/filepath"
 	"time"
 
 	"github.com/dropbox/dropbox-sdk-go-unofficial/dropbox"
 	dbx "github.com/dropbox/dropbox-sdk-go-unofficial/dropbox/files"
+	"github.com/jlaffaye/ftp"
 	errors "golang.org/x/xerrors"
 )
 
@@ -30,7 +32,6 @@ type Storage interface {
 	MkDir(path string) error
 	// Move(srcPath, destPath string) error
 	Type() string
-	//TODO Name() string
 }
 
 type FileInfo struct {
@@ -43,7 +44,7 @@ type FileInfo struct {
 }
 
 type File struct {
-	Data io.ReadCloser
+	Data io.ReadCloser // 必ず閉じてください
 
 	Name    string // ファイル名。filepath.Base
 	LastMod time.Time
@@ -422,4 +423,107 @@ func (d *Dropbox) pre(path *string) error {
 		*path = ""
 	}
 	return nil
+}
+
+type FTP struct {
+	Conn *ftp.ServerConn
+}
+
+func (f *FTP) List(p string) (map[*FileInfo]interface{}, error) {
+	entries, err := f.Conn.List(p)
+	if err != nil {
+		err = errors.Errorf("failed to list dir %s: %w", p, err)
+		return nil, err
+	}
+	fileInfos := map[*FileInfo]interface{}{}
+	for _, e := range entries {
+		fileinfo := &FileInfo{
+			Path:  path.Join(p, e.Name), //TODO
+			IsDir: e.Type == ftp.EntryTypeFolder,
+
+			Name:    e.Name,
+			LastMod: e.Time,
+			Size:    int64(e.Size),
+		}
+		fileInfos[fileinfo] = struct{}{}
+	}
+	return fileInfos, nil
+}
+func (f *FTP) Stat(p string) (*FileInfo, error) {
+	filename := path.Base(p)
+	parentDir := path.Dir(p)
+	infos, err := f.List(parentDir)
+	if err != nil {
+		err = errors.Errorf("failed to list dir %s: %w", parentDir, err)
+		return nil, err
+	}
+
+	info := &FileInfo{}
+	exist := false
+	for i := range infos {
+		if i.Name == filename {
+			info = i
+			exist = true
+			break
+		}
+	}
+	if !exist {
+		err = errors.Errorf("not found %s")
+		return nil, err
+	}
+	return info, nil
+}
+func (f *FTP) Get(p string) (*File, error) {
+	info, err := f.Stat(p)
+	if err != nil {
+		err = errors.Errorf("failed to get stat %s: %w", p, err)
+		return nil, err
+	}
+
+	res, err := f.Conn.Retr(p)
+	if err != nil {
+		err = errors.Errorf("failed to RETR %s: %w", p, err)
+		return nil, err
+	}
+
+	file := &File{
+		Data:    res,
+		Name:    info.Name,
+		LastMod: info.LastMod,
+		Size:    info.Size,
+	}
+	return file, nil
+}
+
+// Lastmodの情報は消滅します
+func (f *FTP) Push(dirPath string, data *File) error {
+	filepath := path.Join(dirPath, data.Name)
+	err := f.Conn.Stor(filepath, data.Data)
+	if err != nil {
+		err = errors.Errorf("failed to Stor %s: %w", filepath, err)
+		return err
+	}
+	return nil
+}
+func (f *FTP) Delete(path string) error {
+	err := f.Conn.RemoveDirRecur(path)
+	if err != nil {
+		err := f.Conn.Delete(path)
+		if err != nil {
+			err = errors.Errorf("failed to delete %s: %w", path, err)
+			return err
+		}
+	}
+	return nil
+}
+func (f *FTP) MkDir(path string) error {
+	err := f.Conn.MakeDir(path)
+	if err != nil {
+		err = errors.Errorf("failed to create directory %s: %w", path, err)
+		return err
+	}
+	return nil
+}
+func (f *FTP) Type() string {
+	return "ftp"
 }

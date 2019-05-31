@@ -12,6 +12,7 @@ import (
 	"bitbucket.org/mt3hr/hbg"
 	"github.com/dropbox/dropbox-sdk-go-unofficial/dropbox"
 	dbx "github.com/dropbox/dropbox-sdk-go-unofficial/dropbox/files"
+	"github.com/jlaffaye/ftp"
 	"github.com/spf13/cobra"
 	errors "golang.org/x/xerrors"
 )
@@ -23,13 +24,42 @@ var (
 		Use:   "copy srcStorage:srcPath destStorage:destDirPath",
 		Short: "ストレージからストレージへとデータをコピーする",
 		Long: `
-	ストレージからストレージへとデータをコピーします。
-	最終更新時刻がupdate_duration未満のファイルのコピーはスキップされます。
-	対応しているストレージのタイプは以下です。
-	・local
-	・dropbox
-	次に例を示します。
-	hbg copy local:C:\Users\user\Desktop\test.txt dropbox:/hbg`,
+ストレージからストレージへとデータをコピーします。
+最終更新時刻がupdate_duration未満のファイルのコピーはスキップされます。
+対応しているストレージのタイプは以下です。
+・local
+・dropbox
+・ftp
+ftpをコピー先として使う場合、タイムスタンプの情報は消滅します。`,
+		Example: `使用例
+hbg copy local:C:/Users/user/Desktop/test.txt dropbox:/hbg,
+hbg copy dropbox:/hbg/test.txt local:/home/user/デスクトップ
+hbg copy -w 10 local:C:/hoge local:C:/fuga
+
+設定ファイルの例
+local:
+  name: local
+dropbox:
+- name: dropbox
+  token: hogefugapiyo1234567890
+ftp: 
+- name: ftp
+  address: localhost
+  username: anonymous
+  password: password
+`,
+		PreRun: func(_ *cobra.Command, args []string) {
+			srcInfo, destInfo := args[0], args[1]
+
+			// コロンで区切って、前がstorageタイプ、後がpath
+			srcSplit := strings.SplitN(srcInfo, ":", 2)
+			copyOpt.srcStorage = srcSplit[0]
+			copyOpt.srcPath = srcSplit[1]
+
+			destSplit := strings.SplitN(destInfo, ":", 2)
+			copyOpt.destStorage = destSplit[0]
+			copyOpt.destDirPath = destSplit[1]
+		},
 	}
 
 	copyOpt = &struct {
@@ -49,37 +79,7 @@ func init() {
 	copyFs.StringArrayVarP(&copyOpt.ignore, "ignore", "i", []string{".nomedia", "desktop.ini", "thumbnails", ".thumbnails", "Thumbs.db"}, "無視するファイル")
 	copyFs.DurationVar(&copyOpt.updateDuration, "update_duration", time.Duration(time.Second), "更新されたとみなす期間")
 	copyFs.IntVarP(&copyOpt.worker, "worker", "w", 1, "同時処理数")
-
-	// copyOptの初期化
-	copyCmd.PreRun = func(_ *cobra.Command, args []string) {
-		srcInfo, destInfo := args[0], args[1]
-
-		// コロンで区切って、前がstorageタイプ、後がpath
-		srcSplit := strings.SplitN(srcInfo, ":", 2)
-		copyOpt.srcStorage = srcSplit[0]
-		copyOpt.srcPath = srcSplit[1]
-
-		destSplit := strings.SplitN(destInfo, ":", 2)
-		copyOpt.destStorage = destSplit[0]
-		copyOpt.destDirPath = destSplit[1]
-
-		// copyOpt.srcStorageとcopyOpt.destStorageの整合性チェック
-		for _, storage := range []string{copyOpt.srcStorage, copyOpt.destStorage} {
-			switch storage {
-			case st_local, st_dropbox:
-			default:
-				err := fmt.Errorf("unknown storage type. %s", storage)
-				log.Fatal(err)
-			}
-		}
-	}
 }
-
-// storageType
-const (
-	st_local   = "local"
-	st_dropbox = "dropbox"
-)
 
 func runCopy(_ *cobra.Command, _ []string) {
 	var srcStorage, destStorage hbg.Storage
@@ -125,6 +125,28 @@ func storageMapFromConfig(c *Cfg) (map[string]hbg.Storage, error) {
 		}
 		storages[dbxCfg.Name] = dropbox
 	}
+
+	// ftpの読み込み
+	// プログラム終了時まで閉じられることがない問題
+	for _, ftpCfg := range c.FTP {
+		conn, err := ftp.Connect(ftpCfg.Address)
+		if err != nil {
+			err = errors.Errorf("failed to connect to ftp server %s: %w", ftpCfg.Address, err)
+			return nil, err
+		}
+		if ftpCfg.UserName != "" || ftpCfg.Password != "" {
+			conn.Login(ftpCfg.UserName, ftpCfg.Password)
+		}
+
+		ftp := &hbg.FTP{Conn: conn}
+		_, exist := storages[ftpCfg.Name]
+		if exist {
+			err := errors.Errorf("confrict name of ftp storage '%s'", ftpCfg.Name)
+			return nil, err
+		}
+		storages[ftpCfg.Name] = ftp
+	}
+
 	return storages, nil
 }
 

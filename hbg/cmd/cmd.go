@@ -26,12 +26,16 @@ type Cfg struct {
 	Local struct {
 		Name string
 	}
+	FTP []struct {
+		Name     string
+		Address  string
+		UserName string
+		Password string
+	}
 }
 
 var (
-	rootCmd = &cobra.Command{
-		Long: `dropboxを使う場合、${HOME}/hbg_config.yamlのdropboxtokenを設定してください。`,
-	}
+	rootCmd = &cobra.Command{}
 
 	rootOpt = &struct {
 		configFile string
@@ -82,6 +86,12 @@ func loadConfig() error {
 		}{
 			Name: "local",
 		})
+		v.Set("ftp", []struct {
+			Name     string
+			Address  string
+			Username string
+			Password string
+		}{})
 
 		return v
 	}

@@ -10,11 +10,10 @@ import (
 	"time"
 
 	"bitbucket.org/mt3hr/hbg"
-	"github.com/spf13/cobra"
-	errors "golang.org/x/xerrors"
-
 	"github.com/dropbox/dropbox-sdk-go-unofficial/dropbox"
 	dbx "github.com/dropbox/dropbox-sdk-go-unofficial/dropbox/files"
+	"github.com/spf13/cobra"
+	errors "golang.org/x/xerrors"
 )
 
 var (
@@ -84,27 +83,51 @@ const (
 
 func runCopy(_ *cobra.Command, _ []string) {
 	var srcStorage, destStorage hbg.Storage
-	switch copyOpt.srcStorage {
-	case st_local:
-		srcStorage = &hbg.LocalFileSystem{}
-	case st_dropbox:
-		client := dbx.New(dropbox.Config{Token: cfg.DropboxToken})
-		srcStorage = &hbg.Dropbox{client}
+	storages, err := storageMapFromConfig(cfg)
+	if err != nil {
+		err = errors.Errorf("failed to load storagemap from config: %w", err)
+		if err != nil {
+			log.Fatal(err)
+		}
 	}
-	switch copyOpt.destStorage {
-	case st_local:
-		destStorage = &hbg.LocalFileSystem{}
-	case st_dropbox:
-		client := dbx.New(dropbox.Config{Token: cfg.DropboxToken})
-		destStorage = &hbg.Dropbox{client}
+	srcStorage, exist := storages[copyOpt.srcStorage]
+	if !exist {
+		err = errors.Errorf("not found storage '%s'", copyOpt.srcStorage)
+		log.Fatal(err)
+	}
+	destStorage, exist = storages[copyOpt.destStorage]
+	if !exist {
+		err = errors.Errorf("not found storage '%s'", copyOpt.destStorage)
+		log.Fatal(err)
 	}
 
-	err := copy(srcStorage, destStorage, copyOpt.srcPath, copyOpt.destDirPath, copyOpt.updateDuration, copyOpt.ignore, copyOpt.worker)
+	err = copy(srcStorage, destStorage, copyOpt.srcPath, copyOpt.destDirPath, copyOpt.updateDuration, copyOpt.ignore, copyOpt.worker)
 	if err != nil {
 		err = errors.Errorf("failed to copy file from %s:%s to %s:%s: %w", srcStorage.Type(), copyOpt.srcPath, destStorage.Type(), copyOpt.destDirPath, err)
 		log.Fatal(err)
 	}
 }
+
+func storageMapFromConfig(c *Cfg) (map[string]hbg.Storage, error) {
+	storages := map[string]hbg.Storage{}
+
+	// localの読み込み
+	storages[c.Local.Name] = &hbg.LocalFileSystem{}
+
+	// dropboxの読み込み
+	for _, dbxCfg := range c.Dropbox {
+		client := dbx.New(dropbox.Config{Token: dbxCfg.Token})
+		dropbox := &hbg.Dropbox{client}
+		_, exist := storages[dbxCfg.Name]
+		if exist {
+			err := errors.Errorf("confrict name of dropbox storage '%s'", dbxCfg.Name)
+			return nil, err
+		}
+		storages[dbxCfg.Name] = dropbox
+	}
+	return storages, nil
+}
+
 func copy(srcStorage, destStorage hbg.Storage, srcPath, destDirPath string, updateDuration time.Duration, ignores []string, worker int) error {
 	// どちらもディレクトリの場合
 	srcFileInfos, err := srcStorage.List(srcPath)

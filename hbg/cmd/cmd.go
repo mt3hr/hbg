@@ -18,6 +18,16 @@ func Execute() {
 	}
 }
 
+type Cfg struct {
+	Dropbox []struct {
+		Name  string
+		Token string
+	}
+	Local struct {
+		Name string
+	}
+}
+
 var (
 	rootCmd = &cobra.Command{
 		Long: `dropboxを使う場合、${HOME}/hbg_config.yamlのdropboxtokenを設定してください。`,
@@ -27,9 +37,7 @@ var (
 		configFile string
 	}{}
 
-	cfg = &struct {
-		DropboxToken string
-	}{}
+	cfg = &Cfg{}
 )
 
 func init() {
@@ -61,7 +69,20 @@ func loadConfig() error {
 	configExt := ".yaml"
 	createDefaultConfig := func() *viper.Viper {
 		v := viper.New()
-		v.Set("dropboxtoken", "")
+
+		v.Set("dropbox", []struct {
+			Name  string
+			Token string
+		}{{
+			Name:  "dropbox",
+			Token: "",
+		}})
+		v.Set("local", struct {
+			Name string
+		}{
+			Name: "local",
+		})
+
 		return v
 	}
 	///////////////////////////////////////////////////////////////

@@ -152,9 +152,9 @@ func (l *LocalFileSystem) Type() string {
 	return "local"
 }
 
-const (
-	d_ChunkSize = 150 * 1048576    // 分割アップロードするかどうかの境界
-	d_MaxSize   = 350 * 1073741824 // アップロード可能最大サイズ
+var (
+	d_ChunkSize uint64 = 150 * 1048576    // 分割アップロードするかどうかの境界
+	d_MaxSize   uint64 = 350 * 1073741824 // アップロード可能最大サイズ
 )
 
 // 時刻をDropboxの形式に丸めます。
@@ -312,7 +312,7 @@ func (d *Dropbox) Push(dirPath string, data *File) error {
 	}
 
 	// 大きすぎたらエラー
-	if data.Size > d_MaxSize {
+	if uint64(data.Size) > d_MaxSize {
 		return fmt.Errorf("%dbyte データのサイズが大きすぎます。%dbyte以内におさめてください。", data.Size, d_MaxSize)
 	}
 
@@ -324,7 +324,7 @@ func (d *Dropbox) Push(dirPath string, data *File) error {
 
 	// 呼び出されるたびに次のチャンクをReaderとして返すやつ
 	getNextChunk := func() io.Reader {
-		chunk := io.LimitReader(data.Data, d_ChunkSize)
+		chunk := io.LimitReader(data.Data, int64(d_ChunkSize))
 		return chunk
 	}
 	defer data.Data.Close()
@@ -333,7 +333,7 @@ func (d *Dropbox) Push(dirPath string, data *File) error {
 	// 150MB以上だと分割する必要があるので
 	client := d.Client
 	var err error
-	if data.Size < d_ChunkSize {
+	if uint64(data.Size) < d_ChunkSize {
 		_, err = client.Upload(commitInfo, getNextChunk())
 		if err != nil {
 			err = errors.Errorf("failed to upload %s at dropbox: %w", path, err)

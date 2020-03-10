@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -8,7 +9,6 @@ import (
 	"github.com/mitchellh/go-homedir"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
-	errors "golang.org/x/xerrors"
 )
 
 func Execute() {
@@ -53,7 +53,7 @@ func init() {
 	rootCmd.PersistentPreRun = func(_ *cobra.Command, _ []string) {
 		err := loadConfig()
 		if err != nil {
-			err = errors.Errorf("failed to load config file: %w", err)
+			err = fmt.Errorf("failed to load config file: %w", err)
 			log.Fatal(err)
 		}
 	}
@@ -108,7 +108,7 @@ func loadConfig() error {
 		v.SetConfigName(configName)
 		exe, err := os.Executable()
 		if err != nil {
-			err = errors.Errorf("failed to get executable file path: %w", err)
+			err = fmt.Errorf("failed to get executable file path: %w", err)
 			log.Printf(err.Error())
 		} else {
 			v.AddConfigPath(filepath.Dir(exe))
@@ -118,7 +118,7 @@ func loadConfig() error {
 
 		home, err := homedir.Dir()
 		if err != nil {
-			err = errors.Errorf("failed to get user home directory: %w", err)
+			err = fmt.Errorf("failed to get user home directory: %w", err)
 			log.Printf(err.Error())
 		} else {
 			v.AddConfigPath(home)
@@ -133,7 +133,7 @@ func loadConfig() error {
 		configDir := ""
 		home, err := homedir.Dir()
 		if err != nil {
-			err = errors.Errorf("failed to get user home directory: %w", err)
+			err = fmt.Errorf("failed to get user home directory: %w", err)
 			log.Printf(err.Error())
 			configDir = "."
 		} else {
@@ -145,14 +145,14 @@ func loadConfig() error {
 		v.SetConfigFile(configFileName)
 		err = v.WriteConfig()
 		if err != nil {
-			err = errors.Errorf("failed to write config to %s: %w", configFileName, err)
+			err = fmt.Errorf("failed to write config to %s: %w", configFileName, err)
 			return err
 		}
 	}
 
 	err = v.Unmarshal(config)
 	if err != nil {
-		err = errors.Errorf("failed unmarshal config file: %w", err)
+		err = fmt.Errorf("failed unmarshal config file: %w", err)
 		return err
 	}
 	return nil

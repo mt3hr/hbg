@@ -13,7 +13,6 @@ import (
 	dbx "github.com/dropbox/dropbox-sdk-go-unofficial/dropbox/files"
 	"github.com/jlaffaye/ftp"
 	"github.com/spf13/cobra"
-	errors "golang.org/x/xerrors"
 )
 
 var (
@@ -84,25 +83,25 @@ func runCopy(_ *cobra.Command, _ []string) {
 	var srcStorage, destStorage hbg.Storage
 	storages, err := storageMapFromConfig(cfg)
 	if err != nil {
-		err = errors.Errorf("failed to load storagemap from config: %w", err)
+		err = fmt.Errorf("failed to load storagemap from config: %w", err)
 		if err != nil {
 			log.Fatal(err)
 		}
 	}
 	srcStorage, exist := storages[copyOpt.srcStorage]
 	if !exist {
-		err = errors.Errorf("not found storage '%s'", copyOpt.srcStorage)
+		err = fmt.Errorf("not found storage '%s'", copyOpt.srcStorage)
 		log.Fatal(err)
 	}
 	destStorage, exist = storages[copyOpt.destStorage]
 	if !exist {
-		err = errors.Errorf("not found storage '%s'", copyOpt.destStorage)
+		err = fmt.Errorf("not found storage '%s'", copyOpt.destStorage)
 		log.Fatal(err)
 	}
 
 	err = copy(srcStorage, destStorage, copyOpt.srcPath, copyOpt.destDirPath, copyOpt.updateDuration, copyOpt.ignore, copyOpt.worker)
 	if err != nil {
-		err = errors.Errorf("failed to copy file from %s:%s to %s:%s: %w", srcStorage.Type(), copyOpt.srcPath, destStorage.Type(), copyOpt.destDirPath, err)
+		err = fmt.Errorf("failed to copy file from %s:%s to %s:%s: %w", srcStorage.Type(), copyOpt.srcPath, destStorage.Type(), copyOpt.destDirPath, err)
 		log.Fatal(err)
 	}
 }
@@ -119,7 +118,7 @@ func storageMapFromConfig(c *Cfg) (map[string]hbg.Storage, error) {
 		dropbox := &hbg.Dropbox{client}
 		_, exist := storages[dbxCfg.Name]
 		if exist {
-			err := errors.Errorf("confrict name of dropbox storage '%s'", dbxCfg.Name)
+			err := fmt.Errorf("confrict name of dropbox storage '%s'", dbxCfg.Name)
 			return nil, err
 		}
 		storages[dbxCfg.Name] = dropbox
@@ -130,7 +129,7 @@ func storageMapFromConfig(c *Cfg) (map[string]hbg.Storage, error) {
 	for _, ftpCfg := range c.FTP {
 		conn, err := ftp.Connect(ftpCfg.Address)
 		if err != nil {
-			err = errors.Errorf("failed to connect to ftp server %s: %w", ftpCfg.Address, err)
+			err = fmt.Errorf("failed to connect to ftp server %s: %w", ftpCfg.Address, err)
 			return nil, err
 		}
 		if ftpCfg.UserName != "" || ftpCfg.Password != "" {
@@ -140,7 +139,7 @@ func storageMapFromConfig(c *Cfg) (map[string]hbg.Storage, error) {
 		ftp := &hbg.FTP{Conn: conn}
 		_, exist := storages[ftpCfg.Name]
 		if exist {
-			err := errors.Errorf("confrict name of ftp storage '%s'", ftpCfg.Name)
+			err := fmt.Errorf("confrict name of ftp storage '%s'", ftpCfg.Name)
 			return nil, err
 		}
 		storages[ftpCfg.Name] = ftp
@@ -153,7 +152,7 @@ func copy(srcStorage, destStorage hbg.Storage, srcPath, destDirPath string, upda
 	// どちらもディレクトリの場合
 	srcFileInfos, err := srcStorage.List(srcPath)
 	if err != nil {
-		err = errors.Errorf("failed to list directory %s:%s: %w", srcStorage.Type(), srcPath, err)
+		err = fmt.Errorf("failed to list directory %s:%s: %w", srcStorage.Type(), srcPath, err)
 		return err
 	}
 
@@ -162,12 +161,12 @@ func copy(srcStorage, destStorage hbg.Storage, srcPath, destDirPath string, upda
 	if err != nil {
 		err = destStorage.MkDir(destDirPath)
 		if err != nil {
-			err = errors.Errorf("failed to create directory %s:%s: %w", destStorage.Type(), destDirPath, err)
+			err = fmt.Errorf("failed to create directory %s:%s: %w", destStorage.Type(), destDirPath, err)
 			return err
 		}
 		destFileInfos, err = destStorage.List(destDirPath)
 		if err != nil {
-			err = errors.Errorf("failed to list directory %s:%s: %w", destStorage.Type(), destDirPath, err)
+			err = fmt.Errorf("failed to list directory %s:%s: %w", destStorage.Type(), destDirPath, err)
 			return err
 		}
 	}
@@ -249,27 +248,27 @@ func copyFileWorker(q <-chan *copyFileArg, wg *sync.WaitGroup) {
 		}
 		err := copyFile(arg.srcStorage, arg.destStorage, arg.srcFilePath, arg.destDirPath)
 		if err != nil {
-			err = errors.Errorf("failed to copy file from %s:%s to %s:%s: %w", arg.srcStorage.Type(), arg.srcFilePath, arg.destStorage.Type(), arg.destDirPath, err)
+			err = fmt.Errorf("failed to copy file from %s:%s to %s:%s: %w", arg.srcStorage.Type(), arg.srcFilePath, arg.destStorage.Type(), arg.destDirPath, err)
 			log.Printf("%s\n", err)
 			/*
 				// 失敗したらコピー先ファイルを削除する
 				err = func() error {
 					srcFile, err := arg.srcStorage.Stat(arg.srcFilePath)
 					if err != nil {
-						err = errors.Errorf("failed to get stat %s from %s: %w", arg.srcFilePath, arg.srcStorage.Type(), err)
+						err = fmt.Errorf("failed to get stat %s from %s: %w", arg.srcFilePath, arg.srcStorage.Type(), err)
 						return err
 					}
 					destFilePath := path.Join(arg.destDirPath, srcFile.Name)
 
 					err = arg.destStorage.Delete(destFilePath)
 					if err != nil {
-						err = errors.Errorf("failed to delete to %s:%s: %w", arg.destStorage.Type(), destFilePath, err)
+						err = fmt.Errorf("failed to delete to %s:%s: %w", arg.destStorage.Type(), destFilePath, err)
 						return err
 					}
 					return nil
 				}()
 				if err != nil {
-					err = errors.Errorf("failed to delete copy failed file: %w", err)
+					err = fmt.Errorf("failed to delete copy failed file: %w", err)
 					log.Printf("%s\n", err)
 				}
 			*/
@@ -288,13 +287,13 @@ func copyFile(srcStorage, destStorage hbg.Storage, srcFilePath, destDirPath stri
 	fmt.Printf("copy %s:%s > %s:%s\n", srcStorage.Type(), srcFilePath, destStorage.Type(), destDirPath)
 	file, err := srcStorage.Get(srcFilePath)
 	if err != nil {
-		err = errors.Errorf("failed to get %s:%s : %w", srcStorage.Type(), srcFilePath, err)
+		err = fmt.Errorf("failed to get %s:%s : %w", srcStorage.Type(), srcFilePath, err)
 		return err
 	}
 	defer file.Data.Close()
 	err = destStorage.Push(destDirPath, file)
 	if err != nil {
-		err = errors.Errorf("failed to push from %s:%s to %s:%s : %w", srcStorage.Type(), srcFilePath, destStorage.Type(), destDirPath, err)
+		err = fmt.Errorf("failed to push from %s:%s to %s:%s : %w", srcStorage.Type(), srcFilePath, destStorage.Type(), destDirPath, err)
 		return err
 	}
 	return nil

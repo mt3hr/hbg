@@ -9,8 +9,6 @@ import (
 	"time"
 
 	"bitbucket.org/mt3hr/hbg"
-	"github.com/dropbox/dropbox-sdk-go-unofficial/dropbox"
-	dbx "github.com/dropbox/dropbox-sdk-go-unofficial/dropbox/files"
 	"github.com/jlaffaye/ftp"
 	"github.com/spf13/cobra"
 )
@@ -127,8 +125,11 @@ func storageMapFromConfig(c *Cfg) (map[string]hbg.Storage, error) {
 
 	// dropboxの読み込み
 	for _, dbxCfg := range c.Dropbox {
-		client := dbx.New(dropbox.Config{Token: dbxCfg.Token})
-		dropbox := &hbg.Dropbox{client}
+		dropbox, err := hbg.NewDropbox(dbxCfg.Name)
+		if err != nil {
+			err = fmt.Errorf("failed load dropbox %s. %w", dbxCfg.Name, err)
+			return nil, err
+		}
 		_, exist := storages[dbxCfg.Name]
 		if exist {
 			err := fmt.Errorf("confrict name of dropbox storage '%s'", dbxCfg.Name)

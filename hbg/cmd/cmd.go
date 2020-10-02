@@ -23,6 +23,9 @@ type Cfg struct {
 		Name  string
 		Token string
 	}
+	GoogleDrive []struct {
+		Name string
+	}
 	Local struct {
 		Name string
 	}
@@ -91,6 +94,9 @@ func loadConfig() error {
 			Address  string
 			Username string
 			Password string
+		}{})
+		v.Set("googledrive", []struct {
+			Name string
 		}{})
 
 		return v

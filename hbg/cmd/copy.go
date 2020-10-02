@@ -45,6 +45,19 @@ ftp:
   address: localhost
   username: anonymous
   password: password
+googledrive: 
+- name: googledrive
+
+GoogleDriveを使う場合、認証情報の入ったJSONファイルをダウンロードしてきてください。
+方法を示します。
+・右記のURLから新しいプロジェクトを作成する: https://console.developers.google.com/apis/credentials/consent
+・APIとサービスの有効化をクリックしてからGoogleDriveAPIを検索し、APIを有効化する
+・メニューから認証情報をクリックして開き、認証情報を作成からOAuthクライアントIDをクリックする
+・OAuth同意画面を適当に作成する
+・もう一度メニューから認証情報をクリックして開き、認証情報を作成からOAuthクライアントIDをクリックする
+・デスクトップアプリを選択し、適当な名前をつけて次に進む
+・OAuth2.0クライアントIDに今作ったものが表示されるので↓ボタンを押してJSONをダウンロードする
+・ダウンロードしたファイルを改名してホームディレクトリに配置する。例えば、設定ファイルで「googledrive」と名付けた場合はcredentials_googledrive.jsonに改名する。
 `,
 		PreRun: func(_ *cobra.Command, args []string) {
 			srcInfo, destInfo := args[0], args[1]
@@ -122,6 +135,20 @@ func storageMapFromConfig(c *Cfg) (map[string]hbg.Storage, error) {
 			return nil, err
 		}
 		storages[dbxCfg.Name] = dropbox
+	}
+
+	for _, gdvCfg := range c.GoogleDrive {
+		googleDrive, err := hbg.NewGoogleDrive(gdvCfg.Name)
+		if err != nil {
+			err = fmt.Errorf("failed load google drive %s. %w", gdvCfg.Name, err)
+			return nil, err
+		}
+		_, exist := storages[gdvCfg.Name]
+		if exist {
+			err := fmt.Errorf("confrict name of google drive storage '%s'", gdvCfg.Name)
+			return nil, err
+		}
+		storages[gdvCfg.Name] = googleDrive
 	}
 
 	// ftpの読み込み
@@ -250,28 +277,6 @@ func copyFileWorker(q <-chan *copyFileArg, wg *sync.WaitGroup) {
 		if err != nil {
 			err = fmt.Errorf("failed to copy file from %s:%s to %s:%s: %w", arg.srcStorage.Type(), arg.srcFilePath, arg.destStorage.Type(), arg.destDirPath, err)
 			log.Printf("%s\n", err)
-			/*
-				// 失敗したらコピー先ファイルを削除する
-				err = func() error {
-					srcFile, err := arg.srcStorage.Stat(arg.srcFilePath)
-					if err != nil {
-						err = fmt.Errorf("failed to get stat %s from %s: %w", arg.srcFilePath, arg.srcStorage.Type(), err)
-						return err
-					}
-					destFilePath := path.Join(arg.destDirPath, srcFile.Name)
-
-					err = arg.destStorage.Delete(destFilePath)
-					if err != nil {
-						err = fmt.Errorf("failed to delete to %s:%s: %w", arg.destStorage.Type(), destFilePath, err)
-						return err
-					}
-					return nil
-				}()
-				if err != nil {
-					err = fmt.Errorf("failed to delete copy failed file: %w", err)
-					log.Printf("%s\n", err)
-				}
-			*/
 		}
 	}
 }

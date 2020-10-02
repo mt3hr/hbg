@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
@@ -288,39 +287,53 @@ func (g *googleDrive) Type() string {
 
 // Retrieve a token, saves the token, then returns the generated client.
 func getClient(config *oauth2.Config, name string) (*http.Client, error) {
+	tokenFileName := fmt.Sprintf("hbg_token_%s_%s.json", "googledrive", name)
 	home, err := homedir.Dir()
 	if err != nil {
 		err = fmt.Errorf("failed to get user home directory: %w", err)
 		return nil, err
 	}
-
-	tokFile := fmt.Sprintf("googleDriveToken_%s.json", name)
-	tokFile = filepath.Join(home, tokFile)
-
-	tok, err := tokenFromFile(tokFile)
+	exe, err := os.Executable()
 	if err != nil {
-		tok = getTokenFromWeb(config)
-		saveToken(tokFile, tok)
+		err = fmt.Errorf("failed to get execute directory: %w", err)
+		return nil, err
+	}
+	exe = filepath.Dir(exe)
+	current := "."
+
+	tok := &oauth2.Token{}
+	for _, tokenDir := range []string{home, exe, current} {
+		tokenFilePath := filepath.Join(tokenDir, tokenFileName)
+		tokenFile := &os.File{}
+		tokenFile, err = os.Open(tokenFilePath)
+		if err == nil {
+			defer tokenFile.Close()
+			err = json.NewDecoder(tokenFile).Decode(tok)
+			break
+		}
+	}
+	if err != nil {
+		authURL := config.AuthCodeURL("state-token", oauth2.AccessTypeOffline)
+		fmt.Printf("%s: %s の初期化を行います。\n下記のURLを開いてhbgを許可し、表示されたキーをこの画面に貼り付けてください。\n%s\n", "googledrive", name, authURL)
+
+		var authCode string
+		if _, err := fmt.Scan(&authCode); err != nil {
+			log.Fatalf("Unable to read authorization code %v", err)
+		}
+
+		tok, err := config.Exchange(context.TODO(), authCode)
+		if err != nil {
+			log.Fatalf("Unable to retrieve token from web %v", err)
+		}
+
+		tokenFilePath := filepath.Join(home, tokenFileName)
+		err = saveToken(tokenFilePath, tok)
+		if err != nil {
+			err = fmt.Errorf("failed save token. %w", err)
+			return nil, err
+		}
 	}
 	return config.Client(context.Background(), tok), nil
-}
-
-// Request a token from the web, then returns the retrieved token.
-func getTokenFromWeb(config *oauth2.Config) *oauth2.Token {
-	authURL := config.AuthCodeURL("state-token", oauth2.AccessTypeOffline)
-	fmt.Printf("ブラウザで下記のURLを踏んでコードを入手し、貼り付けてください。"+
-		"code: \n%v\n", authURL)
-
-	var authCode string
-	if _, err := fmt.Scan(&authCode); err != nil {
-		log.Fatalf("Unable to read authorization code %v", err)
-	}
-
-	tok, err := config.Exchange(context.TODO(), authCode)
-	if err != nil {
-		log.Fatalf("Unable to retrieve token from web %v", err)
-	}
-	return tok
 }
 
 // Retrieves a token from a local file.
@@ -336,30 +349,19 @@ func tokenFromFile(file string) (*oauth2.Token, error) {
 }
 
 // Saves a token to a file path.
-func saveToken(path string, token *oauth2.Token) {
+func saveToken(path string, token *oauth2.Token) error {
 	fmt.Printf("Saving credential file to: %s\n", path)
 	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0600)
 	if err != nil {
-		log.Fatalf("Unable to cache oauth token: %v", err)
+		err = fmt.Errorf("failed open file %s. %w", path, err)
+		return err
 	}
 	defer f.Close()
-	json.NewEncoder(f).Encode(token)
+	return json.NewEncoder(f).Encode(token)
 }
 
 func getGoogleDriveService(name string) (*drive.Service, error) {
-	home, err := homedir.Dir()
-	if err != nil {
-		err = fmt.Errorf("failed to get user home directory: %w", err)
-		return nil, err
-	}
-	credentialsFileName := fmt.Sprintf("credentials_%s.json", name)
-	credentialsFileName = filepath.Join(home, credentialsFileName)
-
-	b, err := ioutil.ReadFile(credentialsFileName)
-	if err != nil {
-		log.Fatalf("Unable to read client secret file: %v", err)
-	}
-
+	b := []byte(`{"installed":{"client_id":"581224303741-8gad6gc0r1cdeam0r3rgmga140rgemr6.apps.googleusercontent.com","project_id":"hbg-go","auth_uri":"https://accounts.google.com/o/oauth2/auth","token_uri":"https://oauth2.googleapis.com/token","auth_provider_x509_cert_url":"https://www.googleapis.com/oauth2/v1/certs","client_secret":"_P9uv6G1xhQsToD9IJCsr3O7","redirect_uris":["urn:ietf:wg:oauth:2.0:oob","http://localhost"]}}`)
 	config, err := google.ConfigFromJSON(b, drive.DriveScope)
 	if err != nil {
 		log.Fatalf("Unable to parse client secret file to config: %v", err)

@@ -29,7 +29,6 @@ type Storage interface {
 	Push(dirPath string, data *File) error
 	Delete(path string) error
 	MkDir(path string) error
-	// Move(srcPath, destPath string) error
 	Type() string
 }
 
@@ -389,6 +388,7 @@ func (d *Dropbox) Delete(path string) error {
 }
 
 func (d *Dropbox) MkDir(path string) error {
+	time.Sleep(time.Second * 2) // mkdirしすぎると怒られるので
 	if err := d.pre(&path); err != nil {
 		return err
 	}

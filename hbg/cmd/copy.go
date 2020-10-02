@@ -25,37 +25,31 @@ var (
 対応しているストレージのタイプは以下です。
 ・local
 ・dropbox
+・googledrive
 ・ftp
-ftpをコピー先として使う場合、タイムスタンプの情報は消滅します。`,
+ftpをコピー先として使う場合、タイムスタンプの情報は消滅します。
+
+GoogleDriveやDropboxを使わない場合は該当する行をコメントアウトするか除去してください。
+GoogleDriveやDropboxは新たにnameを割り当てることで複数のアカウントを使うことができます。
+name割当後の初回起動時には認証URLが出てくるので、コードを取得して貼り付けてください。`,
 		Example: `使用例
 hbg copy local:C:/Users/user/Desktop/test.txt dropbox:/hbg,
 hbg copy dropbox:/hbg/test.txt local:/home/user/デスクトップ
 hbg copy -w 10 local:C:/hoge local:C:/fuga
+
 
 設定ファイルの例
 local:
   name: local
 dropbox:
 - name: dropbox
-  token: hogefugapiyo1234567890
+googledrive: 
+- name: googledrive
 ftp: 
 - name: ftp
   address: localhost
   username: anonymous
   password: password
-googledrive: 
-- name: googledrive
-
-GoogleDriveを使う場合、認証情報の入ったJSONファイルをダウンロードしてきてください。
-方法を示します。
-・右記のURLから新しいプロジェクトを作成する: https://console.developers.google.com/apis/credentials/consent
-・APIとサービスの有効化をクリックしてからGoogleDriveAPIを検索し、APIを有効化する
-・メニューから認証情報をクリックして開き、認証情報を作成からOAuthクライアントIDをクリックする
-・OAuth同意画面を適当に作成する
-・もう一度メニューから認証情報をクリックして開き、認証情報を作成からOAuthクライアントIDをクリックする
-・デスクトップアプリを選択し、適当な名前をつけて次に進む
-・OAuth2.0クライアントIDに今作ったものが表示されるので↓ボタンを押してJSONをダウンロードする
-・ダウンロードしたファイルを改名してホームディレクトリに配置する。例えば、設定ファイルで「googledrive」と名付けた場合はcredentials_googledrive.jsonに改名する。
 `,
 		PreRun: func(_ *cobra.Command, args []string) {
 			srcInfo, destInfo := args[0], args[1]

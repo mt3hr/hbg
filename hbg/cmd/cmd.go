@@ -78,26 +78,20 @@ func loadConfig() error {
 		v := viper.New()
 
 		v.Set("dropbox", []struct {
-			Name  string
-			Token string
+			Name string
 		}{{
-			Name:  "dropbox",
-			Token: "",
+			Name: "dropbox",
 		}})
 		v.Set("local", struct {
 			Name string
 		}{
 			Name: "local",
 		})
-		v.Set("ftp", []struct {
-			Name     string
-			Address  string
-			Username string
-			Password string
-		}{})
 		v.Set("googledrive", []struct {
 			Name string
-		}{})
+		}{{
+			Name: "googledrive",
+		}})
 
 		return v
 	}

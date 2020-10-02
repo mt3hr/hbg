@@ -82,7 +82,7 @@ func (g *googleDrive) List(filepath string) (map[*FileInfo]interface{}, error) {
 }
 
 func (g *googleDrive) listFiles(parentID string) ([]*drive.File, error) {
-	files, err := g.srv.Files.List().Q(fmt.Sprintf("'%s' in parents", parentID)).PageSize(1000).Fields("nextPageToken, files(parents, id, name, kind, mimeType, modifiedTime, size)").Do()
+	files, err := g.srv.Files.List().Q(fmt.Sprintf("'%s' in parents and trashed=false", parentID)).PageSize(1000).Fields("nextPageToken, files(parents, id, name, kind, mimeType, modifiedTime, size)").Do()
 	if files == nil {
 		return nil, err
 	}

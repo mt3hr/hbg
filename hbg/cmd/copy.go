@@ -170,26 +170,13 @@ func storageMapFromConfig(c *Cfg) (map[string]hbg.Storage, error) {
 	return storages, nil
 }
 
-func glob(storage hbg.Storage, pattern string) ([]*hbg.FileInfo, error) {
-	fileInfos := []*hbg.FileInfo{}
-	fileInfo, err := storage.Stat(pattern)
-	if err == nil {
-		fileInfos = append(fileInfos, fileInfo)
-		return fileInfos, nil
-	}
+func glob(files map[*hbg.FileInfo]interface{}, pattern string) (map[*hbg.FileInfo]interface{}, error) {
+	fileInfos := map[*hbg.FileInfo]interface{}{}
 
 	g := glb.MustCompile(filepath.ToSlash(pattern))
-
-	dir := filepath.Dir(pattern)
-	dir = filepath.ToSlash(dir)
-	files, err := storage.List(dir)
-	if err != nil {
-		err = fmt.Errorf("failed list files %s at %s. %w", dir, storage.Type(), err)
-		return nil, err
-	}
 	for file := range files {
 		if g.Match(filepath.ToSlash(file.Path)) {
-			fileInfos = append(fileInfos, file)
+			fileInfos[file] = struct{}{}
 		}
 	}
 	return fileInfos, nil
@@ -201,18 +188,26 @@ func copy(srcStorage, destStorage hbg.Storage, srcPath, destDirPath string, upda
 
 // destFileInfosは、移動先フォルダをListしたもの。
 // srcFileInfosは、移動元フォルダをListしたもの。
-func cp(srcStorage, destStorage hbg.Storage, srcPath, destDirPath string, updateDuration time.Duration, ignores []string, worker int, destFileInfos map[*hbg.FileInfo]interface{}, srcFileInfos []*hbg.FileInfo) error {
-	fmt.Printf("srcPath = %+v\n", srcPath)
+func cp(srcStorage, destStorage hbg.Storage, srcPath, destDirPath string, updateDuration time.Duration, ignores []string, worker int, srcFileInfos map[*hbg.FileInfo]interface{}, destFileInfos map[*hbg.FileInfo]interface{}) error {
 	// どちらもディレクトリの場合
 	var err error
+	fmt.Println("hoge")
 
 	if srcFileInfos == nil {
-		srcFileInfos, err = glob(srcStorage, srcPath)
+		parentDir := filepath.Dir(srcPath)
+		parentDir = filepath.ToSlash(parentDir)
+		srcFiles, err := srcStorage.List(parentDir)
 		if err != nil {
-			err = fmt.Errorf("failed glob %s. %w", srcPath, err)
+			err = fmt.Errorf("failed list %s at %s. %w", parentDir, srcStorage.Type())
 			return err
 		}
+		srcFileInfos, err = glob(srcFiles, srcPath)
 	}
+	if err != nil {
+		err = fmt.Errorf("failed glob %s. %w", srcPath, err)
+		return err
+	}
+	fmt.Println("fuga")
 
 	if destFileInfos == nil {
 		destFileInfos, err = destStorage.List(destDirPath)
@@ -234,6 +229,7 @@ func cp(srcStorage, destStorage hbg.Storage, srcPath, destDirPath string, update
 			}
 		}
 	}
+	fmt.Println("piyo")
 
 	// ワーカー
 	q := make(chan *copyFileArg, worker)
@@ -243,7 +239,7 @@ func cp(srcStorage, destStorage hbg.Storage, srcPath, destDirPath string, update
 		go copyFileWorker(q, wg)
 	}
 
-	for _, srcFileInfo := range srcFileInfos {
+	for srcFileInfo := range srcFileInfos {
 		skip := false
 		// 無視するファイル名だったら無視
 		for _, ignore := range ignores {
@@ -255,25 +251,26 @@ func cp(srcStorage, destStorage hbg.Storage, srcPath, destDirPath string, update
 		if skip {
 			continue
 		}
+		fmt.Println("foo")
 
 		// ディレクトリだったら再帰的に
 		if srcFileInfo.IsDir {
+			fmt.Printf("srcFileInfo.Path = %+v\n", srcFileInfo.Path)
 			files, err := srcStorage.List(srcFileInfo.Path)
 			if err != nil {
 				err = fmt.Errorf("failed list %s at %s. %w", srcFileInfo.Name, srcStorage.Type(), err)
 				return err
 			}
 
-			////////////
 			dir := ""
 			for file := range files {
 				dir = filepath.ToSlash(filepath.Dir(file.Path))
 			}
 			if dir == "" {
-				err = fmt.Errorf("なんかへんです。dir == 空文字")
-				log.Fatal(err)
+				destDirPath = filepath.ToSlash(destDirPath)
+			} else {
+				destDirPath = filepath.ToSlash(filepath.Join(destDirPath, filepath.Base(dir)))
 			}
-			destDirPath := filepath.ToSlash(filepath.Join(destDirPath, filepath.Base(dir)))
 			destFileInfos, err := destStorage.List(destDirPath)
 			// ディレクトリがないとエラーが飛びえるので
 			if err != nil {
@@ -292,32 +289,34 @@ func cp(srcStorage, destStorage hbg.Storage, srcPath, destDirPath string, update
 					return err
 				}
 			}
+			fmt.Println("bar")
 
-			/*
-				srcFileInfos, err := glob(srcStorage, srcPath)
-				if err != nil {
-					err = fmt.Errorf("failed glob %s. %w", srcPath, err)
-					return err
-				}
-			*/
-			///////////////////
+			srcParentDir := ""
 			for file := range files {
-				if !file.IsDir {
-					err = cp(srcStorage, destStorage, filepath.ToSlash(file.Path), destDirPath, updateDuration, ignores, worker, destFileInfos, nil)
-					if err != nil {
-						return err
-					}
-				} else {
+				srcParentDir = filepath.ToSlash(filepath.Dir(file.Path))
+			}
+			srcFiles, err := srcStorage.List(srcParentDir)
+			if err != nil {
+				err = fmt.Errorf("failed list %s at %s. %w", srcParentDir, srcStorage.Type())
+				return err
+			}
+
+			for file := range files {
+				if file.IsDir {
 					err = cp(srcStorage, destStorage, filepath.ToSlash(file.Path), destDirPath, updateDuration, ignores, worker, nil, nil)
 					if err != nil {
 						return err
 					}
-
+				} else {
+					err = cp(srcStorage, destStorage, filepath.ToSlash(file.Path), destDirPath, updateDuration, ignores, worker, srcFiles, destFileInfos)
+					if err != nil {
+						return err
+					}
 				}
-
 			}
 			skip = true
 		}
+		fmt.Printf("srcPath = %+v\n", srcPath)
 		if skip {
 			continue
 		}
@@ -325,6 +324,7 @@ func cp(srcStorage, destStorage hbg.Storage, srcPath, destDirPath string, update
 		// ファイルで、
 		// 最終更新時刻の差がそれ未満かつ、ファイルサイズが同一だったらスキップ
 		for destFileInfo := range destFileInfos {
+			fmt.Println("a")
 			if srcFileInfo.Name == destFileInfo.Name {
 				srcTimeUTC := srcFileInfo.LastMod.UTC()
 				destTimeUTC := destFileInfo.LastMod.UTC()
@@ -341,10 +341,12 @@ func cp(srcStorage, destStorage hbg.Storage, srcPath, destDirPath string, update
 				}
 			}
 		}
+		fmt.Printf("skip = %+v\n", skip)
 		if skip {
 			continue
 		}
 
+		fmt.Println("skipsinai")
 		// コピー
 		q <- &copyFileArg{
 			srcStorage:  srcStorage,

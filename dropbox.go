@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
 	"time"
 
@@ -100,23 +101,26 @@ type dropbox struct {
 	Client dbx.Client
 }
 
-func (d *dropbox) List(path string) (map[*FileInfo]interface{}, error) {
-	if err := d.pre(&path); err != nil {
+func (d *dropbox) List(filepath string) (map[*FileInfo]interface{}, error) {
+	dir, f := path.Split(filepath)
+	filepath = path.Join(dir, f)
+
+	if err := d.pre(&filepath); err != nil {
 		return nil, err
 	}
 
 	// pathがディレクトリであるかどうかの判断
-	if path != "" {
-		isDir, err := d.isDir(path)
+	if filepath != "" {
+		isDir, err := d.isDir(filepath)
 		if err != nil {
 			return nil, err
 		}
 		if !isDir {
-			return nil, fmt.Errorf("%s is not Directory", path)
+			return nil, fmt.Errorf("%s is not Directory", filepath)
 		}
 	}
 
-	metadatas, err := d.listFolder(path)
+	metadatas, err := d.listFolder(filepath)
 	if err != nil {
 		return nil, err
 	}
@@ -131,23 +135,29 @@ func (d *dropbox) List(path string) (map[*FileInfo]interface{}, error) {
 	return fileInfos, nil
 }
 
-func (d *dropbox) isDir(path string) (bool, error) {
+func (d *dropbox) isDir(filepath string) (bool, error) {
+	dir, f := path.Split(filepath)
+	filepath = path.Join(dir, f)
+
 	// ディレクトリであるかどうかの判断
-	arg := dbx.NewGetMetadataArg(path)
+	arg := dbx.NewGetMetadataArg(filepath)
 	metadata, err := d.Client.GetMetadata(arg)
 	if err != nil {
-		err = fmt.Errorf("failed to get %s metadata at dropbox: %w", path, err)
+		err = fmt.Errorf("failed to get %s metadata at dropbox: %w", filepath, err)
 		return false, err
 	}
 	fileInfo, err := metadataToFileInfo(metadata)
 	if err != nil {
-		err = fmt.Errorf("failed to metadataToFileInfo %s: %w", path, err)
+		err = fmt.Errorf("failed to metadataToFileInfo %s: %w", filepath, err)
 		return false, err
 	}
 	return fileInfo.IsDir, nil
 }
 
 func (d *dropbox) listFolder(dirpath string) (map[dbx.IsMetadata]interface{}, error) {
+	dir, f := path.Split(dirpath)
+	dirpath = path.Join(dir, f)
+
 	client := d.Client
 	res, err := client.ListFolder(dbx.NewListFolderArg(dirpath))
 	if err != nil {
@@ -195,36 +205,42 @@ func metadataToFileInfo(metadata dbx.IsMetadata) (*FileInfo, error) {
 	return nil, err
 }
 
-func (d *dropbox) Stat(path string) (*FileInfo, error) {
-	if err := d.pre(&path); err != nil {
+func (d *dropbox) Stat(filepath string) (*FileInfo, error) {
+	dir, f := path.Split(filepath)
+	filepath = path.Join(dir, f)
+
+	if err := d.pre(&filepath); err != nil {
 		return nil, err
 	}
 
-	metadata, err := d.Client.GetMetadata(dbx.NewGetMetadataArg(path))
+	metadata, err := d.Client.GetMetadata(dbx.NewGetMetadataArg(filepath))
 	if err != nil {
-		err = fmt.Errorf("failed to get %s metadata from dropbox: %w", path, err)
+		err = fmt.Errorf("failed to get %s metadata from dropbox: %w", filepath, err)
 		return nil, err
 	}
 	return metadataToFileInfo(metadata)
 }
 
-func (d *dropbox) Get(path string) (*File, error) {
-	if err := d.pre(&path); err != nil {
+func (d *dropbox) Get(filepath string) (*File, error) {
+	dir, f := path.Split(filepath)
+	filepath = path.Join(dir, f)
+
+	if err := d.pre(&filepath); err != nil {
 		return nil, err
 	}
 
-	isDir, err := d.isDir(path)
+	isDir, err := d.isDir(filepath)
 	if err != nil {
 		return nil, err
 	}
 	if isDir {
-		err := fmt.Errorf("%s is Directory", path)
+		err := fmt.Errorf("%s is Directory", filepath)
 		return nil, err
 	}
 
-	metadata, data, err := d.Client.Download(dbx.NewDownloadArg(path))
+	metadata, data, err := d.Client.Download(dbx.NewDownloadArg(filepath))
 	if err != nil {
-		err = fmt.Errorf("failed to download %s from dropbox: %w", path, err)
+		err = fmt.Errorf("failed to download %s from dropbox: %w", filepath, err)
 		return nil, err
 	}
 	return &File{
@@ -236,6 +252,9 @@ func (d *dropbox) Get(path string) (*File, error) {
 }
 
 func (d *dropbox) Push(dirPath string, data *File) error {
+	dir, f := path.Split(dirPath)
+	dirPath = path.Join(dir, f)
+
 	path := filepath.ToSlash(filepath.Join(dirPath, data.Name))
 	if err := d.pre(&path); err != nil {
 		return err
@@ -306,34 +325,46 @@ func (d *dropbox) Push(dirPath string, data *File) error {
 	}
 }
 
-func (d *dropbox) Delete(path string) error {
-	if err := d.pre(&path); err != nil {
+func (d *dropbox) Delete(filepath string) error {
+	dir, f := path.Split(filepath)
+	filepath = path.Join(dir, f)
+
+	if err := d.pre(&filepath); err != nil {
 		return err
 	}
 
-	_, err := d.Client.DeleteV2(dbx.NewDeleteArg(path))
+	_, err := d.Client.DeleteV2(dbx.NewDeleteArg(filepath))
 	if err != nil {
-		err = fmt.Errorf("failed to delete %s: %w", path, err)
+		err = fmt.Errorf("failed to delete %s: %w", filepath, err)
 		return err
 	}
 	return nil
 }
 
-func (d *dropbox) MkDir(path string) error {
+func (d *dropbox) MkDir(filepath string) error {
+	dir, f := path.Split(filepath)
+	filepath = path.Join(dir, f)
+
 	time.Sleep(time.Second * 2) // mkdirしすぎると怒られるので
-	if err := d.pre(&path); err != nil {
+	if err := d.pre(&filepath); err != nil {
 		return err
 	}
 
-	_, err := d.Client.CreateFolderV2(dbx.NewCreateFolderArg(path))
+	_, err := d.Client.CreateFolderV2(dbx.NewCreateFolderArg(filepath))
 	if err != nil {
-		err = fmt.Errorf("failed to create folder %s at dropbox: %w", path, err)
+		err = fmt.Errorf("failed to create folder %s at dropbox: %w", filepath, err)
 		return err
 	}
 	return nil
 }
 
 func (d *dropbox) Move(srcPath, destPath string) error {
+	dir, f := path.Split(srcPath)
+	srcPath = path.Join(dir, f)
+
+	dir, f = path.Split(destPath)
+	destPath = path.Join(dir, f)
+
 	arg := dbx.NewRelocationArg(srcPath, destPath)
 	_, err := d.Client.Move(arg)
 	if err != nil {

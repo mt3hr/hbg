@@ -189,14 +189,14 @@ func metadataToFileInfo(metadata dbx.IsMetadata) (*FileInfo, error) {
 		return &FileInfo{
 			IsDir: true,
 			Name:  fo.Name,
-			Path:  fo.PathLower,
+			Path:  fo.PathDisplay,
 		}, nil
 	case *dbx.FileMetadata:
 		fi := metadata.(*dbx.FileMetadata)
 		return &FileInfo{
 			IsDir:   false,
 			Name:    fi.Name,
-			Path:    fi.PathLower,
+			Path:    fi.PathDisplay,
 			Size:    int64(fi.Size),
 			LastMod: fi.ClientModified,
 		}, nil

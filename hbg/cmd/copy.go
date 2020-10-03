@@ -104,7 +104,7 @@ func runCopy(_ *cobra.Command, _ []string) {
 		log.Fatal(err)
 	}
 
-	err = copy(srcStorage, destStorage, copyOpt.srcPath, copyOpt.destDirPath, copyOpt.updateDuration, copyOpt.ignore, copyOpt.worker, nil)
+	err = copy(srcStorage, destStorage, copyOpt.srcPath, copyOpt.destDirPath, copyOpt.updateDuration, copyOpt.ignore, copyOpt.worker)
 	if err != nil {
 		err = fmt.Errorf("failed to copy file from %s:%s to %s:%s: %w", srcStorage.Type(), copyOpt.srcPath, destStorage.Type(), copyOpt.destDirPath, err)
 		log.Fatal(err)
@@ -195,13 +195,23 @@ func glob(storage hbg.Storage, pattern string) ([]*hbg.FileInfo, error) {
 	return fileInfos, nil
 }
 
-// destDirPathにはnilを渡して。これは再帰使用ようです
-func copy(srcStorage, destStorage hbg.Storage, srcPath, destDirPath string, updateDuration time.Duration, ignores []string, worker int, destFileInfos map[*hbg.FileInfo]interface{}) error {
+func copy(srcStorage, destStorage hbg.Storage, srcPath, destDirPath string, updateDuration time.Duration, ignores []string, worker int) error {
+	return cp(srcStorage, destStorage, srcPath, destDirPath, updateDuration, ignores, worker, nil, nil)
+}
+
+// destFileInfosは、移動先フォルダをListしたもの。
+// srcFileInfosは、移動元フォルダをListしたもの。
+func cp(srcStorage, destStorage hbg.Storage, srcPath, destDirPath string, updateDuration time.Duration, ignores []string, worker int, destFileInfos map[*hbg.FileInfo]interface{}, srcFileInfos []*hbg.FileInfo) error {
+	fmt.Printf("srcPath = %+v\n", srcPath)
 	// どちらもディレクトリの場合
-	srcFileInfos, err := glob(srcStorage, srcPath)
-	if err != nil {
-		err = fmt.Errorf("failed glob %s. %w", srcPath, err)
-		return err
+	var err error
+
+	if srcFileInfos == nil {
+		srcFileInfos, err = glob(srcStorage, srcPath)
+		if err != nil {
+			err = fmt.Errorf("failed glob %s. %w", srcPath, err)
+			return err
+		}
 	}
 
 	if destFileInfos == nil {
@@ -255,41 +265,54 @@ func copy(srcStorage, destStorage hbg.Storage, srcPath, destDirPath string, upda
 			}
 
 			////////////
-
-			///////////////////
-
+			dir := ""
 			for file := range files {
-				dir := filepath.ToSlash(filepath.Dir(file.Path))
-				destDirPath := filepath.ToSlash(filepath.Join(destDirPath, filepath.Base(dir)))
-
-				if file.IsDir {
-					destFileInfos, err := destStorage.List(destDirPath)
-					// ディレクトリがないとエラーが飛びえるので
+				dir = filepath.ToSlash(filepath.Dir(file.Path))
+			}
+			if dir == "" {
+				err = fmt.Errorf("なんかへんです。dir == 空文字")
+				log.Fatal(err)
+			}
+			destDirPath := filepath.ToSlash(filepath.Join(destDirPath, filepath.Base(dir)))
+			destFileInfos, err := destStorage.List(destDirPath)
+			// ディレクトリがないとエラーが飛びえるので
+			if err != nil {
+				err = destStorage.MkDir(destDirPath)
+				if err != nil {
+					time.Sleep(2 * time.Second)
+					err = destStorage.MkDir(destDirPath)
 					if err != nil {
-						err = destStorage.MkDir(destDirPath)
-						if err != nil {
-							time.Sleep(2 * time.Second)
-							err = destStorage.MkDir(destDirPath)
-							if err != nil {
-								err = fmt.Errorf("failed to create directory %s:%s: %w", destStorage.Type(), destDirPath, err)
-								return err
-							}
-						}
-						destFileInfos, err = destStorage.List(destDirPath)
-						if err != nil {
-							err = fmt.Errorf("failed to list directory %s:%s: %w", destStorage.Type(), destDirPath, err)
-							return err
-						}
-						err = copy(srcStorage, destStorage, filepath.ToSlash(file.Path), destDirPath, updateDuration, ignores, worker, destFileInfos)
-						if err != nil {
-							return err
-						}
-					} else {
-						err = copy(srcStorage, destStorage, filepath.ToSlash(file.Path), destDirPath, updateDuration, ignores, worker, nil)
-						if err != nil {
-							return err
-						}
+						err = fmt.Errorf("failed to create directory %s:%s: %w", destStorage.Type(), destDirPath, err)
+						return err
 					}
+				}
+				destFileInfos, err = destStorage.List(destDirPath)
+				if err != nil {
+					err = fmt.Errorf("failed to list directory %s:%s: %w", destStorage.Type(), destDirPath, err)
+					return err
+				}
+			}
+
+			/*
+				srcFileInfos, err := glob(srcStorage, srcPath)
+				if err != nil {
+					err = fmt.Errorf("failed glob %s. %w", srcPath, err)
+					return err
+				}
+			*/
+			///////////////////
+			for file := range files {
+				if !file.IsDir {
+					err = cp(srcStorage, destStorage, filepath.ToSlash(file.Path), destDirPath, updateDuration, ignores, worker, destFileInfos, nil)
+					if err != nil {
+						return err
+					}
+				} else {
+					err = cp(srcStorage, destStorage, filepath.ToSlash(file.Path), destDirPath, updateDuration, ignores, worker, nil, nil)
+					if err != nil {
+						return err
+					}
+
 				}
 
 			}

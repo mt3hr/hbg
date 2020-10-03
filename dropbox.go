@@ -345,7 +345,6 @@ func (d *dropbox) MkDir(filepath string) error {
 	dir, f := path.Split(filepath)
 	filepath = path.Join(dir, f)
 
-	time.Sleep(time.Second * 2) // mkdirしすぎると怒られるので
 	if err := d.pre(&filepath); err != nil {
 		return err
 	}

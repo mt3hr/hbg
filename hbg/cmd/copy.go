@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"bitbucket.org/mt3hr/hbg"
+	glb "github.com/gobwas/glob"
 	"github.com/jlaffaye/ftp"
 	"github.com/spf13/cobra"
 )
@@ -19,8 +20,7 @@ var (
 		Args:  cobra.ExactArgs(2),
 		Use:   "copy srcStorage:srcPath destStorage:destDirPath",
 		Short: "ストレージからストレージへとデータをコピーする",
-		Long: `
-ストレージからストレージへとデータをコピーします。
+		Long: `ストレージからストレージへとデータをコピーします。
 最終更新時刻がupdate_duration未満のファイルのコピーはスキップされます。
 対応しているストレージのタイプは以下です。
 ・local
@@ -170,11 +170,36 @@ func storageMapFromConfig(c *Cfg) (map[string]hbg.Storage, error) {
 	return storages, nil
 }
 
+func glob(storage hbg.Storage, pattern string) ([]*hbg.FileInfo, error) {
+	fileInfos := []*hbg.FileInfo{}
+	fileInfo, err := storage.Stat(pattern)
+	if err == nil {
+		fileInfos = append(fileInfos, fileInfo)
+		return fileInfos, nil
+	}
+
+	g := glb.MustCompile(pattern)
+
+	dir := filepath.Dir(pattern)
+	dir = filepath.ToSlash(dir)
+	files, err := storage.List(dir)
+	if err != nil {
+		err = fmt.Errorf("failed list files %s at %s. %w", dir, storage.Type(), err)
+		return nil, err
+	}
+	for file := range files {
+		if g.Match(file.Path) {
+			fileInfos = append(fileInfos, file)
+		}
+	}
+	return fileInfos, nil
+}
+
 func copy(srcStorage, destStorage hbg.Storage, srcPath, destDirPath string, updateDuration time.Duration, ignores []string, worker int) error {
 	// どちらもディレクトリの場合
-	srcFileInfos, err := srcStorage.List(srcPath)
+	srcFileInfos, err := glob(srcStorage, srcPath)
 	if err != nil {
-		err = fmt.Errorf("failed to list directory %s:%s: %w", srcStorage.Type(), srcPath, err)
+		err = fmt.Errorf("failed glob %s. %w", srcPath, err)
 		return err
 	}
 
@@ -201,27 +226,30 @@ func copy(srcStorage, destStorage hbg.Storage, srcPath, destDirPath string, upda
 		go copyFileWorker(q, wg)
 	}
 
-	for srcFileInfo := range srcFileInfos {
-		skip := false
+	for _, srcFileInfo := range srcFileInfos {
 		// 無視するファイル名だったら無視
 		for _, ignore := range ignores {
 			if srcFileInfo.Name == ignore {
-				skip = true
-				break
+				return nil
 			}
-		}
-		if skip {
-			continue
 		}
 
 		// ディレクトリだったら再帰的に
 		if srcFileInfo.IsDir {
-			childDestDir := filepath.ToSlash(filepath.Join(destDirPath, srcFileInfo.Name))
-			err := copy(srcStorage, destStorage, srcFileInfo.Path, childDestDir, updateDuration, ignores, worker)
+			files, err := srcStorage.List(srcFileInfo.Path)
 			if err != nil {
+				err = fmt.Errorf("failed list %s at %s. %w", srcFileInfo.Name, srcStorage.Type(), err)
 				return err
 			}
-			continue
+			for file := range files {
+				dir := filepath.ToSlash(filepath.Dir(file.Path))
+				destDirPath := filepath.ToSlash(filepath.Join(destDirPath, filepath.Base(dir)))
+
+				err := copy(srcStorage, destStorage, file.Path, destDirPath, updateDuration, ignores, worker)
+				if err != nil {
+					return err
+				}
+			}
 		}
 
 		// ファイルで、
@@ -238,13 +266,9 @@ func copy(srcStorage, destStorage hbg.Storage, srcPath, destDirPath string, upda
 				}
 				if d <= int64(updateDuration) &&
 					srcFileInfo.Size == destFileInfo.Size {
-					skip = true
-					break
+					continue
 				}
 			}
-		}
-		if skip {
-			continue
 		}
 
 		// コピー

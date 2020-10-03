@@ -77,7 +77,7 @@ func (l *LocalFileSystem) Stat(path string) (*FileInfo, error) {
 	}
 
 	return &FileInfo{
-		Path:    filepath.ToSlash(filepath.Join(path, file.Name())),
+		Path:    filepath.ToSlash(path),
 		IsDir:   file.IsDir(),
 		Name:    filepath.Base(file.Name()),
 		Size:    file.Size(),

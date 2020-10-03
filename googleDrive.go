@@ -95,6 +95,17 @@ func (g *googleDrive) getFileByPath(filepath string) (*drive.File, error) {
 	dir, filename := path.Split(filepath)
 	sepPath := strings.Split(dir, "/")
 
+	if filepath == "/" {
+		files, err := g.listFiles("root")
+		if err != nil {
+			err = fmt.Errorf("failed to list files %s. err", "root", err)
+			return nil, err
+		}
+		for _, file := range files {
+			return file, nil
+		}
+	}
+
 	files, err := g.listFiles("root")
 	if err != nil {
 		err = fmt.Errorf("failed to list files %s. err", "root", err)
@@ -139,7 +150,7 @@ func (g *googleDrive) Stat(filepath string) (*FileInfo, error) {
 	}
 
 	fileInfo := &FileInfo{
-		Path:  path.Join(filepath, file.Name),
+		Path:  filepath,
 		IsDir: file.MimeType == MIMETYPE_FOLDER,
 
 		Name:    file.Name,

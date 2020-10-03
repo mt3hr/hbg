@@ -191,7 +191,6 @@ func copy(srcStorage, destStorage hbg.Storage, srcPath, destDirPath string, upda
 func cp(srcStorage, destStorage hbg.Storage, srcPath, destDirPath string, updateDuration time.Duration, ignores []string, worker int, srcFileInfos map[*hbg.FileInfo]interface{}, destFileInfos map[*hbg.FileInfo]interface{}) error {
 	// どちらもディレクトリの場合
 	var err error
-	fmt.Println("hoge")
 
 	if srcFileInfos == nil {
 		parentDir := filepath.Dir(srcPath)
@@ -207,7 +206,6 @@ func cp(srcStorage, destStorage hbg.Storage, srcPath, destDirPath string, update
 		err = fmt.Errorf("failed glob %s. %w", srcPath, err)
 		return err
 	}
-	fmt.Println("fuga")
 
 	if destFileInfos == nil {
 		destFileInfos, err = destStorage.List(destDirPath)
@@ -229,7 +227,6 @@ func cp(srcStorage, destStorage hbg.Storage, srcPath, destDirPath string, update
 			}
 		}
 	}
-	fmt.Println("piyo")
 
 	// ワーカー
 	q := make(chan *copyFileArg, worker)
@@ -239,30 +236,24 @@ func cp(srcStorage, destStorage hbg.Storage, srcPath, destDirPath string, update
 		go copyFileWorker(q, wg)
 	}
 
+Loop:
 	for srcFileInfo := range srcFileInfos {
-		skip := false
 		// 無視するファイル名だったら無視
 		for _, ignore := range ignores {
 			if srcFileInfo.Name == ignore {
-				skip = true
-				break
+				continue Loop
 			}
 		}
-		if skip {
-			continue
-		}
-		fmt.Println("foo")
 
 		// ディレクトリだったら再帰的に
 		if srcFileInfo.IsDir {
-			fmt.Printf("srcFileInfo.Path = %+v\n", srcFileInfo.Path)
 			files, err := srcStorage.List(srcFileInfo.Path)
 			if err != nil {
 				err = fmt.Errorf("failed list %s at %s. %w", srcFileInfo.Name, srcStorage.Type(), err)
 				return err
 			}
 
-			dir := ""
+			dir, destDirPath := "", destDirPath
 			for file := range files {
 				dir = filepath.ToSlash(filepath.Dir(file.Path))
 			}
@@ -289,7 +280,6 @@ func cp(srcStorage, destStorage hbg.Storage, srcPath, destDirPath string, update
 					return err
 				}
 			}
-			fmt.Println("bar")
 
 			srcParentDir := ""
 			for file := range files {
@@ -308,23 +298,25 @@ func cp(srcStorage, destStorage hbg.Storage, srcPath, destDirPath string, update
 						return err
 					}
 				} else {
-					err = cp(srcStorage, destStorage, filepath.ToSlash(file.Path), destDirPath, updateDuration, ignores, worker, srcFiles, destFileInfos)
+					matchSrcFiles := map[*hbg.FileInfo]interface{}{}
+					for f := range srcFiles {
+						if file.Name == f.Name {
+							matchSrcFiles[f] = struct{}{}
+						}
+					}
+
+					err = cp(srcStorage, destStorage, filepath.ToSlash(file.Path), destDirPath, updateDuration, ignores, worker, matchSrcFiles, destFileInfos)
 					if err != nil {
 						return err
 					}
 				}
 			}
-			skip = true
-		}
-		fmt.Printf("srcPath = %+v\n", srcPath)
-		if skip {
-			continue
+			continue Loop
 		}
 
 		// ファイルで、
 		// 最終更新時刻の差がそれ未満かつ、ファイルサイズが同一だったらスキップ
 		for destFileInfo := range destFileInfos {
-			fmt.Println("a")
 			if srcFileInfo.Name == destFileInfo.Name {
 				srcTimeUTC := srcFileInfo.LastMod.UTC()
 				destTimeUTC := destFileInfo.LastMod.UTC()
@@ -336,17 +328,11 @@ func cp(srcStorage, destStorage hbg.Storage, srcPath, destDirPath string, update
 				}
 				if d <= int64(updateDuration) &&
 					srcFileInfo.Size == destFileInfo.Size {
-					skip = true
-					break
+					continue Loop
 				}
 			}
 		}
-		fmt.Printf("skip = %+v\n", skip)
-		if skip {
-			continue
-		}
 
-		fmt.Println("skipsinai")
 		// コピー
 		q <- &copyFileArg{
 			srcStorage:  srcStorage,
@@ -384,7 +370,7 @@ type copyFileArg struct {
 }
 
 func copyFile(srcStorage, destStorage hbg.Storage, srcFilePath, destDirPath string) error {
-	fmt.Printf("copy %s:%s > %s:%s\n", srcStorage.Type(), srcFilePath, destStorage.Type(), destDirPath)
+	fmt.Printf("copy %s:%s -> %s:%s\n", srcStorage.Type(), srcFilePath, destStorage.Type(), destDirPath)
 	file, err := srcStorage.Get(srcFilePath)
 	if err != nil {
 		err = fmt.Errorf("failed to get %s:%s : %w", srcStorage.Type(), srcFilePath, err)

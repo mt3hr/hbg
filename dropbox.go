@@ -342,6 +342,7 @@ func (d *dropbox) Delete(filepath string) error {
 }
 
 func (d *dropbox) MkDir(filepath string) error {
+	time.Sleep(time.Second * 1) // 叩きすぎると怒られるので
 	dir, f := path.Split(filepath)
 	filepath = path.Join(dir, f)
 

@@ -48,6 +48,13 @@ var (
 				log.Fatal(err)
 			}
 		},
+		Run: func(_ *cobra.Command, _ []string) {
+			_, err := storageMapFromConfig(cfg)
+			if err != nil {
+				err = fmt.Errorf("failed load storages. %w", err)
+				log.Fatal(err)
+			}
+		},
 	}
 
 	rootOpt = &struct {

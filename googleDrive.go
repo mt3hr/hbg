@@ -35,8 +35,8 @@ func NewGoogleDrive(name string) (Storage, error) {
 	}, nil
 }
 
-func (g *googleDrive) List(filepath string) (map[*FileInfo]interface{}, error) {
-	fileInfos := map[*FileInfo]interface{}{}
+func (g *googleDrive) List(filepath string) ([]*FileInfo, error) {
+	fileInfos := []*FileInfo{}
 
 	sepPath := strings.Split(filepath, "/")
 	files, err := g.listFiles("root")
@@ -75,7 +75,7 @@ func (g *googleDrive) List(filepath string) (map[*FileInfo]interface{}, error) {
 			LastMod: modTime,
 			Size:    file.Size,
 		}
-		fileInfos[fileInfo] = struct{}{}
+		fileInfos = append(fileInfos, fileInfo)
 	}
 	return fileInfos, nil
 }

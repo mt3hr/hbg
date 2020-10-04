@@ -101,7 +101,7 @@ type dropbox struct {
 	Client dbx.Client
 }
 
-func (d *dropbox) List(filepath string) (map[*FileInfo]interface{}, error) {
+func (d *dropbox) List(filepath string) ([]*FileInfo, error) {
 	dir, f := path.Split(filepath)
 	filepath = path.Join(dir, f)
 
@@ -124,13 +124,13 @@ func (d *dropbox) List(filepath string) (map[*FileInfo]interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	fileInfos := map[*FileInfo]interface{}{}
+	fileInfos := []*FileInfo{}
 	for metadata := range metadatas {
 		fileInfo, err := metadataToFileInfo(metadata)
 		if err != nil {
 			return nil, err
 		}
-		fileInfos[fileInfo] = struct{}{}
+		fileInfos = append(fileInfos, fileInfo)
 	}
 	return fileInfos, nil
 }

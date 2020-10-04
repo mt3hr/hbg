@@ -25,6 +25,7 @@ type Storage interface {
 	// 親ディレクトリを作成し、ファイルを作成します。
 	// すでにファイルが存在する場合は上書きします。
 	Push(dirPath string, data *File) error
+	// pathとそれの中身をすべて削除します。
 	Delete(path string) error
 	MkDir(path string) error
 	Type() string

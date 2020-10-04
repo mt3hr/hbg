@@ -10,16 +10,16 @@ import (
 
 	"bitbucket.org/mt3hr/hbg"
 	glb "github.com/gobwas/glob"
-	"github.com/jlaffaye/ftp"
 	"github.com/spf13/cobra"
 )
 
 var (
 	copyCmd = &cobra.Command{
-		Run:   runCopy,
-		Args:  cobra.ExactArgs(2),
-		Use:   "copy srcStorage:srcPath destStorage:destDirPath",
-		Short: "ストレージからストレージへとデータをコピーする",
+		Aliases: []string{"cp"},
+		Run:     runCopy,
+		Args:    cobra.ExactArgs(2),
+		Use:     "copy srcStorage:srcPath destStorage:destDirPath",
+		Short:   "ストレージからストレージへとデータをコピーする",
 		Long: `ストレージからストレージへとデータをコピーします。
 最終更新時刻がupdate_duration未満のファイルのコピーはスキップされます。
 対応しているストレージのタイプは以下です。
@@ -56,10 +56,18 @@ ftp:
 
 			// コロンで区切って、前がstorageタイプ、後がpath
 			srcSplit := strings.SplitN(srcInfo, ":", 2)
+			if len(srcSplit) < 2 {
+				err := fmt.Errorf("srcpathの記述が変です")
+				log.Fatal(err)
+			}
 			copyOpt.srcStorage = srcSplit[0]
 			copyOpt.srcPath = srcSplit[1]
 
 			destSplit := strings.SplitN(destInfo, ":", 2)
+			if len(destSplit) < 2 {
+				err := fmt.Errorf("destpathの記述が変です")
+				log.Fatal(err)
+			}
 			copyOpt.destStorage = destSplit[0]
 			copyOpt.destDirPath = destSplit[1]
 		},
@@ -89,9 +97,7 @@ func runCopy(_ *cobra.Command, _ []string) {
 	storages, err := storageMapFromConfig(cfg)
 	if err != nil {
 		err = fmt.Errorf("failed to load storagemap from config: %w", err)
-		if err != nil {
-			log.Fatal(err)
-		}
+		log.Fatal(err)
 	}
 	srcStorage, exist := storages[copyOpt.srcStorage]
 	if !exist {
@@ -109,65 +115,6 @@ func runCopy(_ *cobra.Command, _ []string) {
 		err = fmt.Errorf("failed to copy file from %s:%s to %s:%s: %w", srcStorage.Type(), copyOpt.srcPath, destStorage.Type(), copyOpt.destDirPath, err)
 		log.Fatal(err)
 	}
-}
-
-func storageMapFromConfig(c *Cfg) (map[string]hbg.Storage, error) {
-	storages := map[string]hbg.Storage{}
-
-	// localの読み込み
-	storages[c.Local.Name] = &hbg.LocalFileSystem{}
-
-	// dropboxの読み込み
-	for _, dbxCfg := range c.Dropbox {
-		dropbox, err := hbg.NewDropbox(dbxCfg.Name)
-		if err != nil {
-			err = fmt.Errorf("failed load dropbox %s. %w", dbxCfg.Name, err)
-			return nil, err
-		}
-		_, exist := storages[dbxCfg.Name]
-		if exist {
-			err := fmt.Errorf("confrict name of dropbox storage '%s'", dbxCfg.Name)
-			return nil, err
-		}
-		storages[dbxCfg.Name] = dropbox
-	}
-
-	for _, gdvCfg := range c.GoogleDrive {
-		googleDrive, err := hbg.NewGoogleDrive(gdvCfg.Name)
-		if err != nil {
-			err = fmt.Errorf("failed load google drive %s. %w", gdvCfg.Name, err)
-			return nil, err
-		}
-		_, exist := storages[gdvCfg.Name]
-		if exist {
-			err := fmt.Errorf("confrict name of google drive storage '%s'", gdvCfg.Name)
-			return nil, err
-		}
-		storages[gdvCfg.Name] = googleDrive
-	}
-
-	// ftpの読み込み
-	// プログラム終了時まで閉じられることがない問題
-	for _, ftpCfg := range c.FTP {
-		conn, err := ftp.Connect(ftpCfg.Address)
-		if err != nil {
-			err = fmt.Errorf("failed to connect to ftp server %s: %w", ftpCfg.Address, err)
-			return nil, err
-		}
-		if ftpCfg.UserName != "" || ftpCfg.Password != "" {
-			conn.Login(ftpCfg.UserName, ftpCfg.Password)
-		}
-
-		ftp := &hbg.FTP{Conn: conn}
-		_, exist := storages[ftpCfg.Name]
-		if exist {
-			err := fmt.Errorf("confrict name of ftp storage '%s'", ftpCfg.Name)
-			return nil, err
-		}
-		storages[ftpCfg.Name] = ftp
-	}
-
-	return storages, nil
 }
 
 func glob(files []*hbg.FileInfo, pattern string) ([]*hbg.FileInfo, error) {

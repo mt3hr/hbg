@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 
+	"bitbucket.org/mt3hr/hbg"
+	"github.com/jlaffaye/ftp"
 	"github.com/mitchellh/go-homedir"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -38,7 +40,15 @@ type Cfg struct {
 }
 
 var (
-	rootCmd = &cobra.Command{}
+	rootCmd = &cobra.Command{
+		PersistentPreRun: func(_ *cobra.Command, _ []string) {
+			err := loadConfig()
+			if err != nil {
+				err = fmt.Errorf("failed to load config file: %w", err)
+				log.Fatal(err)
+			}
+		},
+	}
 
 	rootOpt = &struct {
 		configFile string
@@ -49,17 +59,11 @@ var (
 
 func init() {
 	rootCmd.AddCommand(copyCmd)
+	rootCmd.AddCommand(removeCmd)
+	rootCmd.AddCommand(listCmd)
 
 	rootPf := rootCmd.PersistentFlags()
 	rootPf.StringVar(&rootOpt.configFile, "config_file", "", "コンフィグファイル")
-
-	rootCmd.PersistentPreRun = func(_ *cobra.Command, _ []string) {
-		err := loadConfig()
-		if err != nil {
-			err = fmt.Errorf("failed to load config file: %w", err)
-			log.Fatal(err)
-		}
-	}
 }
 
 // コンフィグファイルを読み込みます。
@@ -156,4 +160,63 @@ func loadConfig() error {
 		return err
 	}
 	return nil
+}
+
+func storageMapFromConfig(c *Cfg) (map[string]hbg.Storage, error) {
+	storages := map[string]hbg.Storage{}
+
+	// localの読み込み
+	storages[c.Local.Name] = &hbg.LocalFileSystem{}
+
+	// dropboxの読み込み
+	for _, dbxCfg := range c.Dropbox {
+		dropbox, err := hbg.NewDropbox(dbxCfg.Name)
+		if err != nil {
+			err = fmt.Errorf("failed load dropbox %s. %w", dbxCfg.Name, err)
+			return nil, err
+		}
+		_, exist := storages[dbxCfg.Name]
+		if exist {
+			err := fmt.Errorf("confrict name of dropbox storage '%s'", dbxCfg.Name)
+			return nil, err
+		}
+		storages[dbxCfg.Name] = dropbox
+	}
+
+	for _, gdvCfg := range c.GoogleDrive {
+		googleDrive, err := hbg.NewGoogleDrive(gdvCfg.Name)
+		if err != nil {
+			err = fmt.Errorf("failed load google drive %s. %w", gdvCfg.Name, err)
+			return nil, err
+		}
+		_, exist := storages[gdvCfg.Name]
+		if exist {
+			err := fmt.Errorf("confrict name of google drive storage '%s'", gdvCfg.Name)
+			return nil, err
+		}
+		storages[gdvCfg.Name] = googleDrive
+	}
+
+	// ftpの読み込み
+	// プログラム終了時まで閉じられることがない問題
+	for _, ftpCfg := range c.FTP {
+		conn, err := ftp.Connect(ftpCfg.Address)
+		if err != nil {
+			err = fmt.Errorf("failed to connect to ftp server %s: %w", ftpCfg.Address, err)
+			return nil, err
+		}
+		if ftpCfg.UserName != "" || ftpCfg.Password != "" {
+			conn.Login(ftpCfg.UserName, ftpCfg.Password)
+		}
+
+		ftp := &hbg.FTP{Conn: conn}
+		_, exist := storages[ftpCfg.Name]
+		if exist {
+			err := fmt.Errorf("confrict name of ftp storage '%s'", ftpCfg.Name)
+			return nil, err
+		}
+		storages[ftpCfg.Name] = ftp
+	}
+
+	return storages, nil
 }

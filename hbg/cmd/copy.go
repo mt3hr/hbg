@@ -170,13 +170,13 @@ func storageMapFromConfig(c *Cfg) (map[string]hbg.Storage, error) {
 	return storages, nil
 }
 
-func glob(files map[*hbg.FileInfo]interface{}, pattern string) (map[*hbg.FileInfo]interface{}, error) {
-	fileInfos := map[*hbg.FileInfo]interface{}{}
+func glob(files []*hbg.FileInfo, pattern string) ([]*hbg.FileInfo, error) {
+	fileInfos := []*hbg.FileInfo{}
 
 	g := glb.MustCompile(filepath.ToSlash(pattern))
-	for file := range files {
+	for _, file := range files {
 		if g.Match(filepath.ToSlash(file.Path)) {
-			fileInfos[file] = struct{}{}
+			fileInfos = append(fileInfos, file)
 		}
 	}
 	return fileInfos, nil
@@ -188,7 +188,7 @@ func copy(srcStorage, destStorage hbg.Storage, srcPath, destDirPath string, upda
 
 // destFileInfosは、移動先フォルダをListしたもの。
 // srcFileInfosは、移動元フォルダをListしたもの。
-func cp(srcStorage, destStorage hbg.Storage, srcPath, destDirPath string, updateDuration time.Duration, ignores []string, worker int, srcFileInfos map[*hbg.FileInfo]interface{}, destFileInfos map[*hbg.FileInfo]interface{}) error {
+func cp(srcStorage, destStorage hbg.Storage, srcPath, destDirPath string, updateDuration time.Duration, ignores []string, worker int, srcFileInfos []*hbg.FileInfo, destFileInfos []*hbg.FileInfo) error {
 	// どちらもディレクトリの場合
 	var err error
 
@@ -238,7 +238,7 @@ func cp(srcStorage, destStorage hbg.Storage, srcPath, destDirPath string, update
 	}
 
 Loop:
-	for srcFileInfo := range srcFileInfos {
+	for _, srcFileInfo := range srcFileInfos {
 		// 無視するファイル名だったら無視
 		for _, ignore := range ignores {
 			if srcFileInfo.Name == ignore {
@@ -255,7 +255,7 @@ Loop:
 			}
 
 			dir, destDirPath := "", destDirPath
-			for file := range files {
+			for _, file := range files {
 				dir = filepath.ToSlash(filepath.Dir(file.Path))
 			}
 			if dir == "" {
@@ -284,7 +284,7 @@ Loop:
 			}
 
 			srcParentDir := ""
-			for file := range files {
+			for _, file := range files {
 				srcParentDir = filepath.ToSlash(filepath.Dir(file.Path))
 			}
 			srcFiles, err := srcStorage.List(srcParentDir)
@@ -293,17 +293,17 @@ Loop:
 				return err
 			}
 
-			for file := range files {
+			for _, file := range files {
 				if file.IsDir {
 					err = cp(srcStorage, destStorage, filepath.ToSlash(file.Path), destDirPath, updateDuration, ignores, worker, nil, nil)
 					if err != nil {
 						return err
 					}
 				} else {
-					matchSrcFiles := map[*hbg.FileInfo]interface{}{}
-					for f := range srcFiles {
+					matchSrcFiles := []*hbg.FileInfo{}
+					for _, f := range srcFiles {
 						if file.Name == f.Name {
-							matchSrcFiles[f] = struct{}{}
+							matchSrcFiles = append(matchSrcFiles, f)
 						}
 					}
 
@@ -318,7 +318,7 @@ Loop:
 
 		// ファイルで、
 		// 最終更新時刻の差がそれ未満かつ、ファイルサイズが同一だったらスキップ
-		for destFileInfo := range destFileInfos {
+		for _, destFileInfo := range destFileInfos {
 			if srcFileInfo.Name == destFileInfo.Name {
 				srcTimeUTC := srcFileInfo.LastMod.UTC()
 				destTimeUTC := destFileInfo.LastMod.UTC()

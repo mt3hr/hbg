@@ -14,7 +14,7 @@ import (
 )
 
 type Storage interface {
-	List(path string) (map[*FileInfo]interface{}, error)
+	List(path string) ([]*FileInfo, error)
 
 	// 存在しなかった場合はエラーを返します。
 	Stat(path string) (*FileInfo, error)
@@ -49,22 +49,22 @@ type File struct {
 
 type LocalFileSystem struct{}
 
-func (l *LocalFileSystem) List(path string) (map[*FileInfo]interface{}, error) {
+func (l *LocalFileSystem) List(path string) ([]*FileInfo, error) {
 	files, err := ioutil.ReadDir(path)
 	if err != nil {
 		err = fmt.Errorf("failed to read directory %s: %w", path, err)
 		return nil, err
 	}
 
-	infos := map[*FileInfo]interface{}{}
+	infos := []*FileInfo{}
 	for _, file := range files {
-		infos[&FileInfo{
+		infos = append(infos, &FileInfo{
 			Path:    filepath.ToSlash(filepath.Join(path, file.Name())),
 			IsDir:   file.IsDir(),
 			Name:    filepath.Base(file.Name()),
 			Size:    file.Size(),
 			LastMod: file.ModTime(),
-		}] = struct{}{}
+		})
 	}
 	return infos, nil
 }
@@ -152,13 +152,13 @@ type FTP struct {
 	Conn *ftp.ServerConn
 }
 
-func (f *FTP) List(p string) (map[*FileInfo]interface{}, error) {
+func (f *FTP) List(p string) ([]*FileInfo, error) {
 	entries, err := f.Conn.List(p)
 	if err != nil {
 		err = fmt.Errorf("failed to list dir %s: %w", p, err)
 		return nil, err
 	}
-	fileInfos := map[*FileInfo]interface{}{}
+	fileInfos := []*FileInfo{}
 	for _, e := range entries {
 		fileinfo := &FileInfo{
 			Path:  path.Join(p, e.Name), //TODO
@@ -168,7 +168,7 @@ func (f *FTP) List(p string) (map[*FileInfo]interface{}, error) {
 			LastMod: e.Time,
 			Size:    int64(e.Size),
 		}
-		fileInfos[fileinfo] = struct{}{}
+		fileInfos = append(fileInfos, fileinfo)
 	}
 	return fileInfos, nil
 }
@@ -183,7 +183,7 @@ func (f *FTP) Stat(p string) (*FileInfo, error) {
 
 	info := &FileInfo{}
 	exist := false
-	for i := range infos {
+	for _, i := range infos {
 		if i.Name == filename {
 			info = i
 			exist = true

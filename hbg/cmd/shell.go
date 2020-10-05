@@ -97,7 +97,7 @@ var (
 						}
 						return p, nil
 					}
-					return "", fmt.Errorf("pathが変です。%s:%s", storage.Name(), p)
+					return p, nil
 				}
 
 				trimPrefix := func(str string) string {
@@ -115,64 +115,34 @@ var (
 						childItems := []string{}
 						currentPath := currentPathMap[storage]
 
-						existFile := false
-						var stat *hbg.FileInfo
-						if file != "" {
-							stat, _ = storage.Stat(file)
-							if stat != nil {
-								existFile = true
-							}
-						}
-						if !existFile {
-							file = strings.TrimPrefix(file, currentPath)
-							file = path.Join(currentPath, file)
+						if strings.HasPrefix(file, "/") ||
+							strings.HasPrefix(file, "A:") ||
+							strings.HasPrefix(file, "B:") ||
+							strings.HasPrefix(file, "C:") ||
+							strings.HasPrefix(file, "D:") ||
+							strings.HasPrefix(file, "E:") ||
+							strings.HasPrefix(file, "F:") ||
+							strings.HasPrefix(file, "G:") ||
+							strings.HasPrefix(file, "H:") ||
+							strings.HasPrefix(file, "I:") ||
+							strings.HasPrefix(file, "J:") ||
+							strings.HasPrefix(file, "K:") ||
+							strings.HasPrefix(file, "L:") ||
+							strings.HasPrefix(file, "M:") ||
+							strings.HasPrefix(file, "N:") ||
+							strings.HasPrefix(file, "O:") ||
+							strings.HasPrefix(file, "P:") ||
+							strings.HasPrefix(file, "Q:") ||
+							strings.HasPrefix(file, "R:") ||
+							strings.HasPrefix(file, "S:") ||
+							strings.HasPrefix(file, "T:") ||
+							strings.HasPrefix(file, "U:") ||
+							strings.HasPrefix(file, "V:") ||
+							strings.HasPrefix(file, "W:") ||
+							strings.HasPrefix(file, "X:") ||
+							strings.HasPrefix(file, "Y:") ||
+							strings.HasPrefix(file, "Z:") {
 
-							stat, err = storage.Stat(file)
-							if err == nil {
-								existFile = true
-							} else {
-								file = filepath.ToSlash(filepath.Dir(file))
-								stat, err = storage.Stat(file)
-								if err == nil {
-									if stat.IsDir || !dirOnly {
-										existFile = true
-									}
-								}
-							}
-						}
-
-						if existFile {
-							if stat.IsDir || !dirOnly {
-								files, err := storage.List(file)
-								if err != nil {
-									// log.Fatal(err)
-								}
-								for _, f := range files {
-									if f.IsDir || !dirOnly {
-										dirName := path.Join(file, f.Name)
-										dirName = filepath.ToSlash(dirName)
-										childItems = append(childItems, dirName)
-									}
-								}
-							}
-						}
-						sort.Slice(childItems, func(i, j int) bool { return childItems[i] < childItems[j] })
-
-						///
-						file = arg
-						currentChildItems := []string{}
-						if file == "" {
-							files, err := storage.List(currentPath)
-							if err != nil {
-								// log.Fatal(err)
-							}
-							for _, f := range files {
-								if f.IsDir || !dirOnly {
-									filepath := filepath.ToSlash(path.Clean(f.Name))
-									currentChildItems = append(currentChildItems, filepath)
-								}
-							}
-						} else {
 							existFile := false
 							var stat *hbg.FileInfo
 							if file != "" {
@@ -199,23 +169,81 @@ var (
 								}
 							}
 
-							files, err := storage.List(file)
-							if err != nil {
-								// log.Fatal(err)
-							}
-							for _, f := range files {
-								if f.IsDir || !dirOnly {
-									file := strings.TrimPrefix(file, currentPath)
-									file = filepath.ToSlash(path.Clean(path.Join(file, f.Name)))
-									file = strings.TrimPrefix(file, "/")
-									currentChildItems = append(currentChildItems, file)
+							if existFile {
+								if stat.IsDir || !dirOnly {
+									files, err := storage.List(file)
+									if err != nil {
+										// log.Fatal(err)
+									}
+									for _, f := range files {
+										if f.IsDir || !dirOnly {
+											dirName := path.Join(file, f.Name)
+											dirName = filepath.ToSlash(dirName)
+											childItems = append(childItems, dirName)
+										}
+									}
 								}
 							}
+							sort.Slice(childItems, func(i, j int) bool { return childItems[i] < childItems[j] })
+
+							return childItems
+						} else {
+							file = arg
+							currentChildItems := []string{}
+							if file == "" {
+								files, err := storage.List(currentPath)
+								if err != nil {
+									// log.Fatal(err)
+								}
+								for _, f := range files {
+									if f.IsDir || !dirOnly {
+										filepath := filepath.ToSlash(path.Clean(f.Name))
+										currentChildItems = append(currentChildItems, filepath)
+									}
+								}
+							} else {
+								existFile := false
+								var stat *hbg.FileInfo
+								if file != "" {
+									stat, _ = storage.Stat(file)
+									if stat != nil {
+										existFile = true
+									}
+								}
+								if !existFile {
+									file = strings.TrimPrefix(file, currentPath)
+									file = path.Join(currentPath, file)
+
+									stat, err = storage.Stat(file)
+									if err == nil {
+										existFile = true
+									} else {
+										file = filepath.ToSlash(filepath.Dir(file))
+										stat, err = storage.Stat(file)
+										if err == nil {
+											if stat.IsDir || !dirOnly {
+												existFile = true
+											}
+										}
+									}
+								}
+
+								files, err := storage.List(file)
+								if err != nil {
+									// log.Fatal(err)
+								}
+								for _, f := range files {
+									if f.IsDir || !dirOnly {
+										file := strings.TrimPrefix(file, currentPath)
+										file = filepath.ToSlash(path.Clean(path.Join(file, f.Name)))
+										file = strings.TrimPrefix(file, "/")
+										currentChildItems = append(currentChildItems, file)
+									}
+								}
+							}
+							sort.Slice(currentChildItems, func(i, j int) bool { return currentChildItems[i] < currentChildItems[j] })
+							return currentChildItems
 						}
-						sort.Slice(currentChildItems, func(i, j int) bool { return currentChildItems[i] < currentChildItems[j] })
-						childItems = append(currentChildItems, childItems...)
-						///
-						return childItems
 					}
 				}
 

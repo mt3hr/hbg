@@ -153,6 +153,7 @@ var (
 							}
 							if !existFile {
 								file = strings.TrimPrefix(file, currentPath)
+								file = strings.TrimPrefix(file, "/")
 								stat, err = storage.Stat(file)
 								if err == nil {
 									existFile = true
@@ -210,6 +211,7 @@ var (
 								}
 								if !existFile {
 									file = strings.TrimPrefix(file, currentPath)
+									file = strings.TrimPrefix(file, "/")
 									file = path.Join(currentPath, file)
 
 									stat, err = storage.Stat(file)
@@ -278,10 +280,8 @@ var (
 					readline.PcItem("exit"),
 				)
 
-				historyFile := filepath.Join(os.TempDir(), "hbg_history")
-
 				l, err := readline.NewEx(&readline.Config{
-					HistoryFile:     historyFile,
+					HistoryFile:     filepath.Join(os.TempDir(), "hbg_shell_history"),
 					Prompt:          prompt,
 					AutoComplete:    completer,
 					InterruptPrompt: "^C",

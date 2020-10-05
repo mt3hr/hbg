@@ -87,10 +87,13 @@ var (
 						p = path.Join(currentPathMap[storage], p)
 						stat, err := storage.Stat(p)
 						if stat == nil {
-							err := fmt.Errorf("そんなファイルはないかもしれません。%w", err)
-							return "", err
+							_ = err
+							return p, nil
+							// cpのときにpatternで指定し得るので
+							// err := fmt.Errorf("そんなファイルはないかもしれません。%w", err)
+							// return "", err
 						}
-						if !stat.IsDir || !dirOnly {
+						if !((stat.IsDir && dirOnly) || !dirOnly) {
 							err := fmt.Errorf("%sはファイルです。", p)
 							return "", err
 
@@ -255,7 +258,9 @@ var (
 
 					childItems := []string{}
 					for _, storage := range storages {
-						childItems = append(childItems, listFilesFunc(storage, false)(file)...)
+						for _, file := range listFilesFunc(storage, false)(file) {
+							childItems = append(childItems, storage.Name()+":"+file)
+						}
 					}
 					sort.Slice(childItems, func(i, j int) bool { return childItems[i] < childItems[j] })
 					return childItems

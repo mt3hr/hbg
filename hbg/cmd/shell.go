@@ -49,6 +49,57 @@ var (
 				currentPath := currentPathMap[currentStorage]
 				prompt := fmt.Sprintf("%s:%s > ", currentStorage.Name(), currentPath)
 
+				pathResolute := func(storage hbg.Storage, p string, dirOnly bool) (string, error) {
+					p = path.Clean(p)
+					if storage.Type() == "local" {
+						p = os.ExpandEnv(p)
+						p = filepath.ToSlash(p)
+					}
+
+					if strings.HasPrefix(p, "/") ||
+						strings.HasPrefix(p, "A:") ||
+						strings.HasPrefix(p, "B:") ||
+						strings.HasPrefix(p, "C:") ||
+						strings.HasPrefix(p, "D:") ||
+						strings.HasPrefix(p, "E:") ||
+						strings.HasPrefix(p, "F:") ||
+						strings.HasPrefix(p, "G:") ||
+						strings.HasPrefix(p, "H:") ||
+						strings.HasPrefix(p, "I:") ||
+						strings.HasPrefix(p, "J:") ||
+						strings.HasPrefix(p, "K:") ||
+						strings.HasPrefix(p, "L:") ||
+						strings.HasPrefix(p, "M:") ||
+						strings.HasPrefix(p, "N:") ||
+						strings.HasPrefix(p, "O:") ||
+						strings.HasPrefix(p, "P:") ||
+						strings.HasPrefix(p, "Q:") ||
+						strings.HasPrefix(p, "R:") ||
+						strings.HasPrefix(p, "S:") ||
+						strings.HasPrefix(p, "T:") ||
+						strings.HasPrefix(p, "U:") ||
+						strings.HasPrefix(p, "V:") ||
+						strings.HasPrefix(p, "W:") ||
+						strings.HasPrefix(p, "X:") ||
+						strings.HasPrefix(p, "Y:") ||
+						strings.HasPrefix(p, "Z:") {
+					} else {
+						p = path.Join(currentPathMap[storage], p)
+						stat, err := storage.Stat(p)
+						if stat == nil {
+							err := fmt.Errorf("そんなファイルはないかもしれません。%w", err)
+							return "", err
+						}
+						if !stat.IsDir || !dirOnly {
+							err := fmt.Errorf("%sはファイルです。", p)
+							return "", err
+
+						}
+						return p, nil
+					}
+					return "", fmt.Errorf("pathが変です。%s:%s", storage.Name(), p)
+				}
+
 				trimPrefix := func(str string) string {
 					str = strings.TrimSpace(strings.TrimPrefix(str, "ls"))
 					str = strings.TrimSpace(strings.TrimPrefix(str, "cp"))
@@ -60,6 +111,7 @@ var (
 				listFilesFunc := func(storage hbg.Storage, dirOnly bool) func(string) []string {
 					return func(file string) []string {
 						file = trimPrefix(file)
+						arg := file
 						childItems := []string{}
 						currentPath := currentPathMap[storage]
 
@@ -93,7 +145,7 @@ var (
 							if stat.IsDir || !dirOnly {
 								files, err := storage.List(file)
 								if err != nil {
-									log.Fatal(err)
+									// log.Fatal(err)
 								}
 								for _, f := range files {
 									if f.IsDir || !dirOnly {
@@ -105,6 +157,64 @@ var (
 							}
 						}
 						sort.Slice(childItems, func(i, j int) bool { return childItems[i] < childItems[j] })
+
+						///
+						file = arg
+						currentChildItems := []string{}
+						if file == "" {
+							files, err := storage.List(currentPath)
+							if err != nil {
+								// log.Fatal(err)
+							}
+							for _, f := range files {
+								if f.IsDir || !dirOnly {
+									filepath := filepath.ToSlash(path.Clean(f.Name))
+									currentChildItems = append(currentChildItems, filepath)
+								}
+							}
+						} else {
+							existFile := false
+							var stat *hbg.FileInfo
+							if file != "" {
+								stat, _ = storage.Stat(file)
+								if stat != nil {
+									existFile = true
+								}
+							}
+							if !existFile {
+								file = strings.TrimPrefix(file, currentPath)
+								file = path.Join(currentPath, file)
+
+								stat, err = storage.Stat(file)
+								if err == nil {
+									existFile = true
+								} else {
+									file = filepath.ToSlash(filepath.Dir(file))
+									stat, err = storage.Stat(file)
+									if err == nil {
+										if stat.IsDir || !dirOnly {
+											existFile = true
+										}
+									}
+								}
+							}
+
+							files, err := storage.List(file)
+							if err != nil {
+								// log.Fatal(err)
+							}
+							for _, f := range files {
+								if f.IsDir || !dirOnly {
+									file := strings.TrimPrefix(file, currentPath)
+									file = filepath.ToSlash(path.Clean(path.Join(file, f.Name)))
+									file = strings.TrimPrefix(file, "/")
+									currentChildItems = append(currentChildItems, file)
+								}
+							}
+						}
+						sort.Slice(currentChildItems, func(i, j int) bool { return currentChildItems[i] < currentChildItems[j] })
+						childItems = append(currentChildItems, childItems...)
+						///
 						return childItems
 					}
 				}
@@ -176,54 +286,12 @@ var (
 						}
 					} else {
 						dir := spl[1]
-
-						dir = path.Clean(dir)
-						if currentStorage.Type() == "local" {
-							dir = os.ExpandEnv(dir)
-							dir = filepath.ToSlash(dir)
+						dir, err := pathResolute(currentStorage, dir, true)
+						if err != nil {
+							log.Fatal(err)
 						}
 
-						if strings.HasPrefix(dir, "/") ||
-							strings.HasPrefix(dir, "A:") ||
-							strings.HasPrefix(dir, "B:") ||
-							strings.HasPrefix(dir, "C:") ||
-							strings.HasPrefix(dir, "D:") ||
-							strings.HasPrefix(dir, "E:") ||
-							strings.HasPrefix(dir, "F:") ||
-							strings.HasPrefix(dir, "G:") ||
-							strings.HasPrefix(dir, "H:") ||
-							strings.HasPrefix(dir, "I:") ||
-							strings.HasPrefix(dir, "J:") ||
-							strings.HasPrefix(dir, "K:") ||
-							strings.HasPrefix(dir, "L:") ||
-							strings.HasPrefix(dir, "M:") ||
-							strings.HasPrefix(dir, "N:") ||
-							strings.HasPrefix(dir, "O:") ||
-							strings.HasPrefix(dir, "P:") ||
-							strings.HasPrefix(dir, "Q:") ||
-							strings.HasPrefix(dir, "R:") ||
-							strings.HasPrefix(dir, "S:") ||
-							strings.HasPrefix(dir, "T:") ||
-							strings.HasPrefix(dir, "U:") ||
-							strings.HasPrefix(dir, "V:") ||
-							strings.HasPrefix(dir, "W:") ||
-							strings.HasPrefix(dir, "X:") ||
-							strings.HasPrefix(dir, "Y:") ||
-							strings.HasPrefix(dir, "Z:") {
-							currentPath = dir
-						} else {
-							currentPath = path.Join(currentPathMap[currentStorage], dir)
-							stat, _ := currentStorage.Stat(currentPath)
-							if stat == nil {
-								fmt.Println("そんなディレクトリはないかもしれません。")
-								continue Loop
-							}
-							if !stat.IsDir {
-								fmt.Printf("%sはファイルです。", dir)
-								continue Loop
-							}
-						}
-						err := list(currentStorage, dir, true, true)
+						err = list(currentStorage, dir, true, true)
 						if err != nil {
 							log.Fatal(err)
 						}
@@ -234,52 +302,11 @@ var (
 					if len(spl) != 1 {
 						dir := spl[1]
 
-						dir = path.Clean(dir)
-						if currentStorage.Type() == "local" {
-							dir = os.ExpandEnv(dir)
-							dir = filepath.ToSlash(dir)
+						currentPath, err = pathResolute(currentStorage, dir, true)
+						if err != nil {
+							log.Fatal(err)
 						}
 
-						if strings.HasPrefix(dir, "/") ||
-							strings.HasPrefix(dir, "A:") ||
-							strings.HasPrefix(dir, "B:") ||
-							strings.HasPrefix(dir, "C:") ||
-							strings.HasPrefix(dir, "D:") ||
-							strings.HasPrefix(dir, "E:") ||
-							strings.HasPrefix(dir, "F:") ||
-							strings.HasPrefix(dir, "G:") ||
-							strings.HasPrefix(dir, "H:") ||
-							strings.HasPrefix(dir, "I:") ||
-							strings.HasPrefix(dir, "J:") ||
-							strings.HasPrefix(dir, "K:") ||
-							strings.HasPrefix(dir, "L:") ||
-							strings.HasPrefix(dir, "M:") ||
-							strings.HasPrefix(dir, "N:") ||
-							strings.HasPrefix(dir, "O:") ||
-							strings.HasPrefix(dir, "P:") ||
-							strings.HasPrefix(dir, "Q:") ||
-							strings.HasPrefix(dir, "R:") ||
-							strings.HasPrefix(dir, "S:") ||
-							strings.HasPrefix(dir, "T:") ||
-							strings.HasPrefix(dir, "U:") ||
-							strings.HasPrefix(dir, "V:") ||
-							strings.HasPrefix(dir, "W:") ||
-							strings.HasPrefix(dir, "X:") ||
-							strings.HasPrefix(dir, "Y:") ||
-							strings.HasPrefix(dir, "Z:") {
-							currentPath = dir
-						} else {
-							currentPath = path.Join(currentPathMap[currentStorage], dir)
-							stat, _ := currentStorage.Stat(currentPath)
-							if stat == nil {
-								fmt.Println("そんなディレクトリはないかもしれません。")
-								continue Loop
-							}
-							if !stat.IsDir {
-								fmt.Printf("%sはファイルです。", dir)
-								continue Loop
-							}
-						}
 						currentPath = filepath.ToSlash(currentPath)
 						currentPathMap[currentStorage] = currentPath
 					}
@@ -334,44 +361,11 @@ var (
 						ignores := []string{} //TODO
 
 						expandPathFunc := func(storage hbg.Storage, file string) string {
-							file = path.Clean(file)
-							if storage.Type() == "local" {
-								file = os.ExpandEnv(file)
-								file = filepath.ToSlash(file)
+							file, err := pathResolute(storage, file, false)
+							if err != nil {
+								log.Fatal(err)
 							}
-
-							if strings.HasPrefix(file, "/") ||
-								strings.HasPrefix(file, "A:") ||
-								strings.HasPrefix(file, "B:") ||
-								strings.HasPrefix(file, "C:") ||
-								strings.HasPrefix(file, "D:") ||
-								strings.HasPrefix(file, "E:") ||
-								strings.HasPrefix(file, "F:") ||
-								strings.HasPrefix(file, "G:") ||
-								strings.HasPrefix(file, "H:") ||
-								strings.HasPrefix(file, "I:") ||
-								strings.HasPrefix(file, "J:") ||
-								strings.HasPrefix(file, "K:") ||
-								strings.HasPrefix(file, "L:") ||
-								strings.HasPrefix(file, "M:") ||
-								strings.HasPrefix(file, "N:") ||
-								strings.HasPrefix(file, "O:") ||
-								strings.HasPrefix(file, "P:") ||
-								strings.HasPrefix(file, "Q:") ||
-								strings.HasPrefix(file, "R:") ||
-								strings.HasPrefix(file, "S:") ||
-								strings.HasPrefix(file, "T:") ||
-								strings.HasPrefix(file, "U:") ||
-								strings.HasPrefix(file, "V:") ||
-								strings.HasPrefix(file, "W:") ||
-								strings.HasPrefix(file, "X:") ||
-								strings.HasPrefix(file, "Y:") ||
-								strings.HasPrefix(file, "Z:") {
-								return file
-							} else {
-								file = path.Join(currentPathMap[storage], file)
-								return file
-							}
+							return file
 						}
 						srcPath = expandPathFunc(srcStorage, srcPath)
 						destPath = expandPathFunc(destStorage, destPath)

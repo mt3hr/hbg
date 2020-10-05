@@ -222,6 +222,14 @@ func (d *dropbox) Stat(filepath string) (*FileInfo, error) {
 	dir, f := path.Split(filepath)
 	filepath = path.Join(dir, f)
 
+	if filepath == "/" {
+		return &FileInfo{
+			IsDir: true,
+			Name:  "/",
+			Path:  "/",
+		}, nil
+	}
+
 	if err := d.pre(&filepath); err != nil {
 		return nil, err
 	}

@@ -45,6 +45,31 @@ func (g *googleDrive) Close() error {
 func (g *googleDrive) List(filepath string) ([]*FileInfo, error) {
 	fileInfos := []*FileInfo{}
 
+	if filepath == "/" {
+		files, err := g.listFiles("root")
+		for _, file := range files {
+			modTime := time.Time{}
+			if file.ModifiedTime != "" {
+				modTime, err = time.Parse(time.RFC3339, file.ModifiedTime)
+				if err != nil {
+					err = fmt.Errorf("time parse failed %s. %w", file.ModifiedTime, err)
+					return nil, err
+				}
+			}
+
+			fileInfo := &FileInfo{
+				Path:  path.Join(filepath, file.Name),
+				IsDir: file.MimeType == MIMETYPE_FOLDER,
+
+				Name:    file.Name,
+				LastMod: modTime,
+				Size:    file.Size,
+			}
+			fileInfos = append(fileInfos, fileInfo)
+		}
+		return fileInfos, nil
+	}
+
 	sepPath := strings.Split(filepath, "/")
 	files, err := g.listFiles("root")
 	if err != nil {
@@ -145,6 +170,14 @@ func (g *googleDrive) getFileByPath(filepath string) (*drive.File, error) {
 }
 
 func (g *googleDrive) Stat(filepath string) (*FileInfo, error) {
+	if filepath == "/" {
+		return &FileInfo{
+			IsDir: true,
+			Name:  "/",
+			Path:  "/",
+		}, nil
+	}
+
 	file, err := g.getFileByPath(filepath)
 	if err != nil {
 		err = fmt.Errorf("failed get file by path %s. %w", filepath, err)

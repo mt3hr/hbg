@@ -25,7 +25,6 @@ var (
 				log.Fatal(err)
 			}
 
-			// TODO copyの実装
 			var currentStorage hbg.Storage
 			currentPathMap := map[hbg.Storage]string{}
 			if err != nil {
@@ -36,6 +35,7 @@ var (
 				if storage.Type() == "local" {
 					currentStorage = storage
 					currentPathMap[storage], err = filepath.Abs(".")
+					currentPathMap[storage] = filepath.ToSlash(currentPathMap[storage])
 					if err != nil {
 						log.Fatal(err)
 					}
@@ -49,7 +49,7 @@ var (
 				currentPath := currentPathMap[currentStorage]
 				prompt := fmt.Sprintf("%s:%s > ", currentStorage.Name(), currentPath)
 
-				listStorageFunc := func(file string) []string {
+				listStorageFilesFunc := func(file string) []string {
 					file = strings.TrimSpace(strings.TrimPrefix(file, "cp"))
 					file = strings.TrimSpace(strings.TrimPrefix(file, "rm"))
 					file = strings.TrimSpace(strings.TrimPrefix(file, "cd"))
@@ -61,20 +61,67 @@ var (
 					for _, storage := range storages {
 						file := file
 						currentPath := currentPathMap[storage]
+
 						existFile := false
-						if _, err := storage.Stat(file); err == nil {
-							existFile = true
+						var stat *hbg.FileInfo
+						if file != "" {
+							stat, _ = storage.Stat(file)
+							if stat != nil {
+								existFile = true
+							}
 						}
 						if !existFile {
 							file = strings.TrimPrefix(file, currentPath)
 							file = path.Join(currentPath, file)
+
+							stat, err = storage.Stat(file)
+							if err == nil {
+								existFile = true
+							} else {
+								file = filepath.ToSlash(filepath.Dir(file))
+								stat, err = storage.Stat(file)
+								if err == nil {
+									existFile = true
+								}
+							}
 						}
-						files, _ := storage.List(file)
-						for _, f := range files {
-							dirName := path.Join(file, f.Name)
-							storagePath := storage.Name() + ":" + dirName
-							childItems = append(childItems, storagePath)
+
+						if existFile {
+							files, err := storage.List(file)
+							if err != nil {
+								log.Fatal(err)
+							}
+							for _, f := range files {
+								dirName := path.Join(file, f.Name)
+								storagePath := storage.Name() + ":" + dirName
+								childItems = append(childItems, storagePath)
+							}
 						}
+						/*
+							existFile := false
+							if _, err := storage.Stat(file); err == nil {
+								existFile = true
+							} else {
+								file = filepath.ToSlash(filepath.Dir(file))
+								stat, err := storage.Stat(file)
+								if err == nil {
+									if stat.IsDir {
+										existFile = true
+									}
+								}
+							}
+							if !existFile {
+								file = strings.TrimPrefix(file, currentPath)
+								file = path.Join(currentPath, file)
+							}
+
+							files, _ := storage.List(file)
+							for _, f := range files {
+								dirName := path.Join(file, f.Name)
+								storagePath := storage.Name() + ":" + dirName
+								childItems = append(childItems, storagePath)
+							}
+						*/
 					}
 					return childItems
 				}
@@ -89,21 +136,37 @@ var (
 						currentPath := currentPathMap[storage]
 
 						existFile := false
-						if _, err := storage.Stat(file); err == nil {
-							existFile = true
+						var stat *hbg.FileInfo
+						if file != "" {
+							stat, _ = storage.Stat(file)
+							if stat != nil {
+								existFile = true
+							}
 						}
 						if !existFile {
 							file = strings.TrimPrefix(file, currentPath)
 							file = path.Join(currentPath, file)
+
+							stat, err = storage.Stat(file)
+							if err == nil {
+								existFile = true
+							} else {
+								file = filepath.ToSlash(filepath.Dir(file))
+								stat, err = storage.Stat(file)
+								if err == nil {
+									existFile = true
+								}
+							}
 						}
-						_, err := storage.Stat(file)
-						if err == nil {
+
+						if existFile {
 							files, err := storage.List(file)
 							if err != nil {
 								log.Fatal(err)
 							}
 							for _, f := range files {
 								dirName := path.Join(file, f.Name)
+								dirName = filepath.ToSlash(dirName)
 								childItems = append(childItems, dirName)
 							}
 							return childItems
@@ -122,25 +185,41 @@ var (
 						currentPath := currentPathMap[storage]
 
 						existDir := false
-						if stat, err := storage.Stat(dir); err == nil {
-							if stat.IsDir {
+						var stat *hbg.FileInfo
+						if dir != "" {
+							stat, _ = storage.Stat(dir)
+							if stat != nil {
 								existDir = true
 							}
 						}
 						if !existDir {
 							dir = strings.TrimPrefix(dir, currentPath)
 							dir = path.Join(currentPath, dir)
+
+							stat, err = storage.Stat(dir)
+							if err == nil {
+								existDir = true
+							} else {
+								dir = filepath.ToSlash(filepath.Dir(dir))
+								stat, err = storage.Stat(dir)
+								if err == nil {
+									if stat.IsDir {
+										existDir = true
+									}
+								}
+							}
 						}
-						stat, err := storage.Stat(dir)
-						if err == nil {
+
+						if existDir {
 							if stat.IsDir {
 								files, err := storage.List(dir)
 								if err != nil {
 									log.Fatal(err)
 								}
-								for _, file := range files {
-									if file.IsDir {
-										dirName := path.Join(dir, file.Name)
+								for _, f := range files {
+									if f.IsDir {
+										dirName := path.Join(dir, f.Name)
+										dirName = filepath.ToSlash(dirName)
 										childItems = append(childItems, dirName)
 									}
 								}
@@ -165,12 +244,15 @@ var (
 					readline.PcItem("cs", readline.PcItemDynamic(listStorages)),
 					readline.PcItem("pwd"),
 					readline.PcItem("ls"),
-					readline.PcItem("cp", readline.PcItemDynamic(listStorageFunc)),
+					readline.PcItem("cp", readline.PcItemDynamic(listStorageFilesFunc)),
 					readline.PcItem("rm", readline.PcItemDynamic(listFileAndDirsFunc(currentStorage))),
 					readline.PcItem("exit"),
 				)
 
+				historyFile := filepath.Join(os.TempDir(), "hbg_history")
+
 				l, err := readline.NewEx(&readline.Config{
+					HistoryFile:     historyFile,
 					Prompt:          prompt,
 					AutoComplete:    completer,
 					InterruptPrompt: "^C",
@@ -253,6 +335,7 @@ var (
 								continue Loop
 							}
 						}
+						currentPath = filepath.ToSlash(currentPath)
 						currentPathMap[currentStorage] = currentPath
 					}
 				}

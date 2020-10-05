@@ -97,32 +97,8 @@ var (
 								childItems = append(childItems, storagePath)
 							}
 						}
-						/*
-							existFile := false
-							if _, err := storage.Stat(file); err == nil {
-								existFile = true
-							} else {
-								file = filepath.ToSlash(filepath.Dir(file))
-								stat, err := storage.Stat(file)
-								if err == nil {
-									if stat.IsDir {
-										existFile = true
-									}
-								}
-							}
-							if !existFile {
-								file = strings.TrimPrefix(file, currentPath)
-								file = path.Join(currentPath, file)
-							}
-
-							files, _ := storage.List(file)
-							for _, f := range files {
-								dirName := path.Join(file, f.Name)
-								storagePath := storage.Name() + ":" + dirName
-								childItems = append(childItems, storagePath)
-							}
-						*/
 					}
+					sort.Slice(childItems, func(i, j int) bool { return childItems[i] < childItems[j] })
 					return childItems
 				}
 
@@ -169,8 +145,8 @@ var (
 								dirName = filepath.ToSlash(dirName)
 								childItems = append(childItems, dirName)
 							}
-							return childItems
 						}
+						sort.Slice(childItems, func(i, j int) bool { return childItems[i] < childItems[j] })
 						return childItems
 					}
 				}
@@ -223,9 +199,9 @@ var (
 										childItems = append(childItems, dirName)
 									}
 								}
-								return childItems
 							}
 						}
+						sort.Slice(childItems, func(i, j int) bool { return childItems[i] < childItems[j] })
 						return childItems
 					}
 				}

@@ -21,7 +21,8 @@ import (
 const MIMETYPE_FOLDER = "application/vnd.google-apps.folder"
 
 type googleDrive struct {
-	srv *drive.Service
+	srv  *drive.Service
+	name string
 }
 
 func NewGoogleDrive(name string) (Storage, error) {
@@ -31,8 +32,14 @@ func NewGoogleDrive(name string) (Storage, error) {
 		return nil, err
 	}
 	return &googleDrive{
-		srv: srv,
+		srv:  srv,
+		name: name,
 	}, nil
+}
+
+func (g *googleDrive) Close() error {
+	g.srv = nil
+	return nil
 }
 
 func (g *googleDrive) List(filepath string) ([]*FileInfo, error) {
@@ -78,6 +85,10 @@ func (g *googleDrive) List(filepath string) ([]*FileInfo, error) {
 		fileInfos = append(fileInfos, fileInfo)
 	}
 	return fileInfos, nil
+}
+
+func (g *googleDrive) Name() string {
+	return g.name
 }
 
 func (g *googleDrive) listFiles(parentID string) ([]*drive.File, error) {

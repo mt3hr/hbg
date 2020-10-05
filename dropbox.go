@@ -35,7 +35,10 @@ func NewDropbox(name string) (Storage, error) {
 	}
 
 	client := dbx.New(dbxapi.Config{Token: token})
-	return &dropbox{Client: client}, nil
+	return &dropbox{
+		Client: client,
+		name:   name,
+	}, nil
 }
 
 func loadTokenFromName(name string) (string, error) {
@@ -99,6 +102,16 @@ func loadTokenFromName(name string) (string, error) {
 // 比較するときにはTimeToDropbox関数を使ってください。
 type dropbox struct {
 	Client dbx.Client
+	name   string
+}
+
+func (d *dropbox) Name() string {
+	return d.name
+}
+
+func (d *dropbox) Close() error {
+	d.Client = nil
+	return nil
 }
 
 func (d *dropbox) List(filepath string) ([]*FileInfo, error) {

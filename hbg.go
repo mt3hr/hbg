@@ -29,6 +29,8 @@ type Storage interface {
 	Delete(path string) error
 	MkDir(path string) error
 	Type() string
+	Name() string
+	Close() error
 }
 
 type FileInfo struct {
@@ -48,9 +50,25 @@ type File struct {
 	Size    int64
 }
 
-type LocalFileSystem struct{}
+func NewLocalFileSystem(name string) Storage {
+	return &localFileSystem{
+		name: name,
+	}
+}
 
-func (l *LocalFileSystem) List(path string) ([]*FileInfo, error) {
+type localFileSystem struct {
+	name string
+}
+
+func (l *localFileSystem) Close() error {
+	return nil
+}
+
+func (l *localFileSystem) Name() string {
+	return l.name
+}
+
+func (l *localFileSystem) List(path string) ([]*FileInfo, error) {
 	files, err := ioutil.ReadDir(path)
 	if err != nil {
 		err = fmt.Errorf("failed to read directory %s: %w", path, err)
@@ -70,7 +88,7 @@ func (l *LocalFileSystem) List(path string) ([]*FileInfo, error) {
 	return infos, nil
 }
 
-func (l *LocalFileSystem) Stat(path string) (*FileInfo, error) {
+func (l *localFileSystem) Stat(path string) (*FileInfo, error) {
 	file, err := os.Stat(path)
 	if err != nil {
 		err = fmt.Errorf("failed to get stat %s: %w", path, err)
@@ -86,7 +104,7 @@ func (l *LocalFileSystem) Stat(path string) (*FileInfo, error) {
 	}, nil
 }
 
-func (l *LocalFileSystem) Get(path string) (*File, error) {
+func (l *localFileSystem) Get(path string) (*File, error) {
 	info, err := os.Stat(path)
 	if err != nil {
 		err = fmt.Errorf("failed to get stat %s: %w", path, err)
@@ -105,7 +123,7 @@ func (l *LocalFileSystem) Get(path string) (*File, error) {
 	}, nil
 }
 
-func (l *LocalFileSystem) Push(dirPath string, data *File) error {
+func (l *localFileSystem) Push(dirPath string, data *File) error {
 	err := l.MkDir(dirPath)
 	if err != nil {
 		err = fmt.Errorf("failed to create directory %s: %w", dirPath, err)
@@ -137,23 +155,49 @@ func (l *LocalFileSystem) Push(dirPath string, data *File) error {
 	return nil
 }
 
-func (l *LocalFileSystem) Delete(path string) error {
+func (l *localFileSystem) Delete(path string) error {
 	return os.RemoveAll(path)
 }
 
-func (l *LocalFileSystem) MkDir(path string) error {
+func (l *localFileSystem) MkDir(path string) error {
 	return os.MkdirAll(path, os.ModePerm)
 }
 
-func (l *LocalFileSystem) Type() string {
+func (l *localFileSystem) Type() string {
 	return "local"
 }
 
-type FTP struct {
-	Conn *ftp.ServerConn
+// username passwordは必要な場合のみ渡してください
+func NewFTP(addres, username, password, name string) (Storage, error) {
+	conn, err := ftp.Connect(addres)
+	if err != nil {
+		err = fmt.Errorf("failed to connect to ftp server %s: %w", addres, err)
+		return nil, err
+	}
+	if username != "" || password != "" {
+		conn.Login(username, password)
+	}
+
+	return &ftpImpl{
+		Conn: conn,
+		name: name,
+	}, nil
 }
 
-func (f *FTP) List(p string) ([]*FileInfo, error) {
+type ftpImpl struct {
+	Conn *ftp.ServerConn
+	name string
+}
+
+func (f *ftpImpl) Close() error {
+	return f.Conn.Quit()
+}
+
+func (f *ftpImpl) Name() string {
+	return f.name
+}
+
+func (f *ftpImpl) List(p string) ([]*FileInfo, error) {
 	entries, err := f.Conn.List(p)
 	if err != nil {
 		err = fmt.Errorf("failed to list dir %s: %w", p, err)
@@ -173,7 +217,7 @@ func (f *FTP) List(p string) ([]*FileInfo, error) {
 	}
 	return fileInfos, nil
 }
-func (f *FTP) Stat(p string) (*FileInfo, error) {
+func (f *ftpImpl) Stat(p string) (*FileInfo, error) {
 	filename := path.Base(p)
 	parentDir := path.Dir(p)
 	infos, err := f.List(parentDir)
@@ -197,7 +241,7 @@ func (f *FTP) Stat(p string) (*FileInfo, error) {
 	}
 	return info, nil
 }
-func (f *FTP) Get(p string) (*File, error) {
+func (f *ftpImpl) Get(p string) (*File, error) {
 	info, err := f.Stat(p)
 	if err != nil {
 		err = fmt.Errorf("failed to get stat %s: %w", p, err)
@@ -220,7 +264,7 @@ func (f *FTP) Get(p string) (*File, error) {
 }
 
 // Lastmodの情報は消滅します
-func (f *FTP) Push(dirPath string, data *File) error {
+func (f *ftpImpl) Push(dirPath string, data *File) error {
 	filepath := path.Join(dirPath, data.Name)
 	err := f.Conn.Stor(filepath, data.Data)
 	if err != nil {
@@ -229,7 +273,7 @@ func (f *FTP) Push(dirPath string, data *File) error {
 	}
 	return nil
 }
-func (f *FTP) Delete(path string) error {
+func (f *ftpImpl) Delete(path string) error {
 	err := f.Conn.RemoveDirRecur(path)
 	if err != nil {
 		err := f.Conn.Delete(path)
@@ -240,7 +284,7 @@ func (f *FTP) Delete(path string) error {
 	}
 	return nil
 }
-func (f *FTP) MkDir(path string) error {
+func (f *ftpImpl) MkDir(path string) error {
 	err := f.Conn.MakeDir(path)
 	if err != nil {
 		err = fmt.Errorf("failed to create directory %s: %w", path, err)
@@ -248,6 +292,6 @@ func (f *FTP) MkDir(path string) error {
 	}
 	return nil
 }
-func (f *FTP) Type() string {
+func (f *ftpImpl) Type() string {
 	return "ftp"
 }

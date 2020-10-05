@@ -153,8 +153,6 @@ var (
 							}
 							if !existFile {
 								file = strings.TrimPrefix(file, currentPath)
-								file = path.Join(currentPath, file)
-
 								stat, err = storage.Stat(file)
 								if err == nil {
 									existFile = true

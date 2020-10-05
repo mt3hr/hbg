@@ -266,6 +266,9 @@ var (
 							dir = filepath.ToSlash(dir)
 						}
 
+						if strings.Contains(dir, "..") {
+							dir = path.Clean(dir)
+						}
 						if strings.HasPrefix(dir, "/") ||
 							strings.HasPrefix(dir, "A:") ||
 							strings.HasPrefix(dir, "B:") ||
@@ -294,11 +297,6 @@ var (
 							strings.HasPrefix(dir, "Y:") ||
 							strings.HasPrefix(dir, "Z:") {
 							currentPath = dir
-						} else if strings.HasPrefix(dir, "..") {
-							for i := 0; i < strings.Count(dir, ".."); i++ {
-								slashPath := filepath.ToSlash(currentPath)
-								currentPath = path.Dir(slashPath)
-							}
 						} else {
 							currentPath = path.Join(currentPathMap[currentStorage], dir)
 							stat, _ := currentStorage.Stat(currentPath)
@@ -369,6 +367,10 @@ var (
 								file = os.ExpandEnv(file)
 								file = filepath.ToSlash(file)
 							}
+
+							if strings.Contains(file, "..") {
+								file = path.Clean(file)
+							}
 							if strings.HasPrefix(file, "/") ||
 								strings.HasPrefix(file, "A:") ||
 								strings.HasPrefix(file, "B:") ||
@@ -397,17 +399,10 @@ var (
 								strings.HasPrefix(file, "Y:") ||
 								strings.HasPrefix(file, "Z:") {
 								return file
-							} else if strings.HasPrefix(file, "..") {
-								for i := 0; i < strings.Count(file, ".."); i++ {
-									slashPath := filepath.ToSlash(file)
-									file = path.Dir(slashPath)
-									return file
-								}
 							} else {
 								file = path.Join(currentPathMap[storage], file)
 								return file
 							}
-							return ""
 						}
 						srcPath = expandPathFunc(srcStorage, srcPath)
 						destPath = expandPathFunc(destStorage, destPath)

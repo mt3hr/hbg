@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 
 	"bitbucket.org/mt3hr/hbg"
-	"github.com/jlaffaye/ftp"
 	"github.com/mitchellh/go-homedir"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -48,13 +47,7 @@ var (
 				log.Fatal(err)
 			}
 		},
-		Run: func(_ *cobra.Command, _ []string) {
-			_, err := storageMapFromConfig(cfg)
-			if err != nil {
-				err = fmt.Errorf("failed load storages. %w", err)
-				log.Fatal(err)
-			}
-		},
+		Run: func(_ *cobra.Command, _ []string) {},
 	}
 
 	rootOpt = &struct {
@@ -68,6 +61,7 @@ func init() {
 	rootCmd.AddCommand(copyCmd)
 	rootCmd.AddCommand(removeCmd)
 	rootCmd.AddCommand(listCmd)
+	rootCmd.AddCommand(shellCmd)
 
 	rootPf := rootCmd.PersistentFlags()
 	rootPf.StringVar(&rootOpt.configFile, "config_file", "", "コンフィグファイル")
@@ -173,7 +167,7 @@ func storageMapFromConfig(c *Cfg) (map[string]hbg.Storage, error) {
 	storages := map[string]hbg.Storage{}
 
 	// localの読み込み
-	storages[c.Local.Name] = &hbg.LocalFileSystem{}
+	storages[c.Local.Name] = hbg.NewLocalFileSystem(c.Local.Name)
 
 	// dropboxの読み込み
 	for _, dbxCfg := range c.Dropbox {
@@ -190,6 +184,7 @@ func storageMapFromConfig(c *Cfg) (map[string]hbg.Storage, error) {
 		storages[dbxCfg.Name] = dropbox
 	}
 
+	// googledriveの読み込み
 	for _, gdvCfg := range c.GoogleDrive {
 		googleDrive, err := hbg.NewGoogleDrive(gdvCfg.Name)
 		if err != nil {
@@ -205,18 +200,11 @@ func storageMapFromConfig(c *Cfg) (map[string]hbg.Storage, error) {
 	}
 
 	// ftpの読み込み
-	// プログラム終了時まで閉じられることがない問題
 	for _, ftpCfg := range c.FTP {
-		conn, err := ftp.Connect(ftpCfg.Address)
+		ftp, err := hbg.NewFTP(ftpCfg.Address, ftpCfg.UserName, ftpCfg.Password, ftpCfg.Name)
 		if err != nil {
-			err = fmt.Errorf("failed to connect to ftp server %s: %w", ftpCfg.Address, err)
-			return nil, err
+			log.Fatal(err)
 		}
-		if ftpCfg.UserName != "" || ftpCfg.Password != "" {
-			conn.Login(ftpCfg.UserName, ftpCfg.Password)
-		}
-
-		ftp := &hbg.FTP{Conn: conn}
 		_, exist := storages[ftpCfg.Name]
 		if exist {
 			err := fmt.Errorf("confrict name of ftp storage '%s'", ftpCfg.Name)

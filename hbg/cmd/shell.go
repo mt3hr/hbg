@@ -133,12 +133,12 @@ var (
 				}
 
 				completer := readline.NewPrefixCompleter(
-					readline.PcItem("cd", readline.PcItemDynamic(listFilesFunc(currentStorage, false))),
+					readline.PcItem("cd", readline.PcItemDynamic(listFilesFunc(currentStorage, true))),
 					readline.PcItem("cs", readline.PcItemDynamic(listStorages)),
 					readline.PcItem("pwd"),
 					readline.PcItem("ls", readline.PcItemDynamic(listFilesFunc(currentStorage, true))),
 					readline.PcItem("cp", readline.PcItemDynamic(listStorageFilesFunc)),
-					readline.PcItem("rm", readline.PcItemDynamic(listFilesFunc(currentStorage, true))),
+					readline.PcItem("rm", readline.PcItemDynamic(listFilesFunc(currentStorage, false))),
 					readline.PcItem("exit"),
 				)
 

@@ -49,65 +49,17 @@ var (
 				currentPath := currentPathMap[currentStorage]
 				prompt := fmt.Sprintf("%s:%s > ", currentStorage.Name(), currentPath)
 
-				listStorageFilesFunc := func(file string) []string {
-					file = strings.TrimSpace(strings.TrimPrefix(file, "cp"))
-					file = strings.TrimSpace(strings.TrimPrefix(file, "rm"))
-					file = strings.TrimSpace(strings.TrimPrefix(file, "cd"))
-					for _, storage := range storages {
-						file = strings.TrimSpace(strings.TrimPrefix(file, storage.Name()+":"))
-					}
-
-					childItems := []string{}
-					for _, storage := range storages {
-						file := file
-						currentPath := currentPathMap[storage]
-
-						existFile := false
-						var stat *hbg.FileInfo
-						if file != "" {
-							stat, _ = storage.Stat(file)
-							if stat != nil {
-								existFile = true
-							}
-						}
-						if !existFile {
-							file = strings.TrimPrefix(file, currentPath)
-							file = path.Join(currentPath, file)
-
-							stat, err = storage.Stat(file)
-							if err == nil {
-								existFile = true
-							} else {
-								file = filepath.ToSlash(filepath.Dir(file))
-								stat, err = storage.Stat(file)
-								if err == nil {
-									existFile = true
-								}
-							}
-						}
-
-						if existFile {
-							files, err := storage.List(file)
-							if err != nil {
-								log.Fatal(err)
-							}
-							for _, f := range files {
-								dirName := path.Join(file, f.Name)
-								storagePath := storage.Name() + ":" + dirName
-								childItems = append(childItems, storagePath)
-							}
-						}
-					}
-					sort.Slice(childItems, func(i, j int) bool { return childItems[i] < childItems[j] })
-					return childItems
+				trimPrefix := func(str string) string {
+					str = strings.TrimSpace(strings.TrimPrefix(str, "ls"))
+					str = strings.TrimSpace(strings.TrimPrefix(str, "cp"))
+					str = strings.TrimSpace(strings.TrimPrefix(str, "rm"))
+					str = strings.TrimSpace(strings.TrimPrefix(str, "cd"))
+					return str
 				}
 
-				listFileAndDirsFunc := func(storage hbg.Storage) func(string) []string {
+				listFilesFunc := func(storage hbg.Storage, dirOnly bool) func(string) []string {
 					return func(file string) []string {
-						file = strings.TrimSpace(strings.TrimPrefix(file, "cp"))
-						file = strings.TrimSpace(strings.TrimPrefix(file, "rm"))
-						file = strings.TrimSpace(strings.TrimPrefix(file, "cd"))
-
+						file = trimPrefix(file)
 						childItems := []string{}
 						currentPath := currentPathMap[storage]
 
@@ -130,71 +82,22 @@ var (
 								file = filepath.ToSlash(filepath.Dir(file))
 								stat, err = storage.Stat(file)
 								if err == nil {
-									existFile = true
-								}
-							}
-						}
-
-						if existFile {
-							files, err := storage.List(file)
-							if err != nil {
-								log.Fatal(err)
-							}
-							for _, f := range files {
-								dirName := path.Join(file, f.Name)
-								dirName = filepath.ToSlash(dirName)
-								childItems = append(childItems, dirName)
-							}
-						}
-						sort.Slice(childItems, func(i, j int) bool { return childItems[i] < childItems[j] })
-						return childItems
-					}
-				}
-
-				listDirsFunc := func(storage hbg.Storage) func(string) []string {
-					return func(dir string) []string {
-						dir = strings.TrimSpace(strings.TrimPrefix(dir, "cp"))
-						dir = strings.TrimSpace(strings.TrimPrefix(dir, "rm"))
-						dir = strings.TrimSpace(strings.TrimPrefix(dir, "cd"))
-
-						childItems := []string{}
-						currentPath := currentPathMap[storage]
-
-						existDir := false
-						var stat *hbg.FileInfo
-						if dir != "" {
-							stat, _ = storage.Stat(dir)
-							if stat != nil {
-								existDir = true
-							}
-						}
-						if !existDir {
-							dir = strings.TrimPrefix(dir, currentPath)
-							dir = path.Join(currentPath, dir)
-
-							stat, err = storage.Stat(dir)
-							if err == nil {
-								existDir = true
-							} else {
-								dir = filepath.ToSlash(filepath.Dir(dir))
-								stat, err = storage.Stat(dir)
-								if err == nil {
-									if stat.IsDir {
-										existDir = true
+									if stat.IsDir || !dirOnly {
+										existFile = true
 									}
 								}
 							}
 						}
 
-						if existDir {
-							if stat.IsDir {
-								files, err := storage.List(dir)
+						if existFile {
+							if stat.IsDir || !dirOnly {
+								files, err := storage.List(file)
 								if err != nil {
 									log.Fatal(err)
 								}
 								for _, f := range files {
-									if f.IsDir {
-										dirName := path.Join(dir, f.Name)
+									if f.IsDir || !dirOnly {
+										dirName := path.Join(file, f.Name)
 										dirName = filepath.ToSlash(dirName)
 										childItems = append(childItems, dirName)
 									}
@@ -204,6 +107,20 @@ var (
 						sort.Slice(childItems, func(i, j int) bool { return childItems[i] < childItems[j] })
 						return childItems
 					}
+				}
+
+				listStorageFilesFunc := func(file string) []string {
+					file = trimPrefix(file)
+					for _, storage := range storages {
+						file = strings.TrimSpace(strings.TrimPrefix(file, storage.Name()+":"))
+					}
+
+					childItems := []string{}
+					for _, storage := range storages {
+						childItems = append(childItems, listFilesFunc(storage, false)(file)...)
+					}
+					sort.Slice(childItems, func(i, j int) bool { return childItems[i] < childItems[j] })
+					return childItems
 				}
 
 				listStorages := func(_ string) []string {
@@ -216,12 +133,12 @@ var (
 				}
 
 				completer := readline.NewPrefixCompleter(
-					readline.PcItem("cd", readline.PcItemDynamic(listDirsFunc(currentStorage))),
+					readline.PcItem("cd", readline.PcItemDynamic(listFilesFunc(currentStorage, false))),
 					readline.PcItem("cs", readline.PcItemDynamic(listStorages)),
 					readline.PcItem("pwd"),
-					readline.PcItem("ls"),
+					readline.PcItem("ls", readline.PcItemDynamic(listFilesFunc(currentStorage, true))),
 					readline.PcItem("cp", readline.PcItemDynamic(listStorageFilesFunc)),
-					readline.PcItem("rm", readline.PcItemDynamic(listFileAndDirsFunc(currentStorage))),
+					readline.PcItem("rm", readline.PcItemDynamic(listFilesFunc(currentStorage, true))),
 					readline.PcItem("exit"),
 				)
 
@@ -250,10 +167,66 @@ var (
 				if line == "exit" {
 					return
 				}
-				if line == "ls" {
-					err := list(currentStorage, currentPath, true, true)
-					if err != nil {
-						log.Fatal(err)
+				if strings.HasPrefix(line, "ls") {
+					spl := strings.SplitN(line, " ", 2)
+					if len(spl) == 1 {
+						err := list(currentStorage, currentPath, true, true)
+						if err != nil {
+							log.Fatal(err)
+						}
+					} else {
+						dir := spl[1]
+
+						dir = path.Clean(dir)
+						if currentStorage.Type() == "local" {
+							dir = os.ExpandEnv(dir)
+							dir = filepath.ToSlash(dir)
+						}
+
+						if strings.HasPrefix(dir, "/") ||
+							strings.HasPrefix(dir, "A:") ||
+							strings.HasPrefix(dir, "B:") ||
+							strings.HasPrefix(dir, "C:") ||
+							strings.HasPrefix(dir, "D:") ||
+							strings.HasPrefix(dir, "E:") ||
+							strings.HasPrefix(dir, "F:") ||
+							strings.HasPrefix(dir, "G:") ||
+							strings.HasPrefix(dir, "H:") ||
+							strings.HasPrefix(dir, "I:") ||
+							strings.HasPrefix(dir, "J:") ||
+							strings.HasPrefix(dir, "K:") ||
+							strings.HasPrefix(dir, "L:") ||
+							strings.HasPrefix(dir, "M:") ||
+							strings.HasPrefix(dir, "N:") ||
+							strings.HasPrefix(dir, "O:") ||
+							strings.HasPrefix(dir, "P:") ||
+							strings.HasPrefix(dir, "Q:") ||
+							strings.HasPrefix(dir, "R:") ||
+							strings.HasPrefix(dir, "S:") ||
+							strings.HasPrefix(dir, "T:") ||
+							strings.HasPrefix(dir, "U:") ||
+							strings.HasPrefix(dir, "V:") ||
+							strings.HasPrefix(dir, "W:") ||
+							strings.HasPrefix(dir, "X:") ||
+							strings.HasPrefix(dir, "Y:") ||
+							strings.HasPrefix(dir, "Z:") {
+							currentPath = dir
+						} else {
+							currentPath = path.Join(currentPathMap[currentStorage], dir)
+							stat, _ := currentStorage.Stat(currentPath)
+							if stat == nil {
+								fmt.Println("そんなディレクトリはないかもしれません。")
+								continue Loop
+							}
+							if !stat.IsDir {
+								fmt.Printf("%sはファイルです。", dir)
+								continue Loop
+							}
+						}
+						err := list(currentStorage, dir, true, true)
+						if err != nil {
+							log.Fatal(err)
+						}
 					}
 				}
 				if strings.HasPrefix(line, "cd") {
@@ -261,14 +234,12 @@ var (
 					if len(spl) != 1 {
 						dir := spl[1]
 
+						dir = path.Clean(dir)
 						if currentStorage.Type() == "local" {
 							dir = os.ExpandEnv(dir)
 							dir = filepath.ToSlash(dir)
 						}
 
-						if strings.Contains(dir, "..") {
-							dir = path.Clean(dir)
-						}
 						if strings.HasPrefix(dir, "/") ||
 							strings.HasPrefix(dir, "A:") ||
 							strings.HasPrefix(dir, "B:") ||
@@ -363,14 +334,12 @@ var (
 						ignores := []string{} //TODO
 
 						expandPathFunc := func(storage hbg.Storage, file string) string {
+							file = path.Clean(file)
 							if storage.Type() == "local" {
 								file = os.ExpandEnv(file)
 								file = filepath.ToSlash(file)
 							}
 
-							if strings.Contains(file, "..") {
-								file = path.Clean(file)
-							}
 							if strings.HasPrefix(file, "/") ||
 								strings.HasPrefix(file, "A:") ||
 								strings.HasPrefix(file, "B:") ||

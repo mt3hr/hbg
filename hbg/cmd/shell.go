@@ -182,7 +182,6 @@ var (
 									}
 								}
 							}
-							fmt.Printf("file = %+v\n", file)
 
 							if existFile {
 								if stat.IsDir || !dirOnly {

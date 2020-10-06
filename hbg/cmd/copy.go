@@ -158,10 +158,14 @@ func cp(srcStorage, destStorage hbg.Storage, srcPath, destDirPath string, update
 		destFileInfos, err = destStorage.List(destDirPath)
 		// ディレクトリがないとエラーが飛びえるので
 		if err != nil {
-			time.Sleep(1 * time.Second)
+			if destStorage.Type() != "local" {
+				time.Sleep(1 * time.Second)
+			}
 			err = destStorage.MkDir(destDirPath)
 			if err != nil {
-				time.Sleep(1 * time.Second)
+				if destStorage.Type() != "local" {
+					time.Sleep(1 * time.Second)
+				}
 				err = destStorage.MkDir(destDirPath)
 				if err != nil {
 					err = fmt.Errorf("failed to create directory %s:%s: %w", destStorage.Type(), destDirPath, err)
@@ -213,10 +217,14 @@ Loop:
 			destFileInfos, err := destStorage.List(destDirPath)
 			// ディレクトリがないとエラーが飛びえるので
 			if err != nil {
-				time.Sleep(time.Second * 1) // 叩きすぎると怒られるので
+				if destStorage.Type() != "local" {
+					time.Sleep(time.Second * 1) // 叩きすぎると怒られるので
+				}
 				err = destStorage.MkDir(destDirPath)
 				if err != nil {
-					time.Sleep(time.Second * 1) // 叩きすぎると怒られるので
+					if destStorage.Type() != "local" {
+						time.Sleep(time.Second * 1) // 叩きすぎると怒られるので
+					}
 					err = destStorage.MkDir(destDirPath)
 					if err != nil {
 						err = fmt.Errorf("failed to create directory %s:%s: %w", destStorage.Type(), destDirPath, err)

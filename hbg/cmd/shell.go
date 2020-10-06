@@ -265,6 +265,12 @@ var (
 
 				listStorageFilesFunc := func(file string) []string {
 					file = trimPrefix(file)
+
+					spl := strings.SplitN(file, " ", 2)
+					if len(spl) == 2 {
+						file = strings.TrimSpace(spl[1])
+					}
+
 					for _, storage := range storages {
 						file = strings.TrimSpace(strings.TrimPrefix(file, storage.Name()+":"))
 					}
@@ -272,7 +278,11 @@ var (
 					childItems := []string{}
 					for _, storage := range storages {
 						for _, file := range listFilesFunc(storage, false)(file) {
-							childItems = append(childItems, storage.Name()+":"+file)
+							filename := storage.Name() + ":" + file
+							if len(spl) == 2 {
+								filename = spl[0] + " " + filename
+							}
+							childItems = append(childItems, filename)
 						}
 					}
 					sort.Slice(childItems, func(i, j int) bool { return childItems[i] < childItems[j] })
@@ -294,6 +304,7 @@ var (
 					readline.PcItem("pwd"),
 					readline.PcItem("ls", readline.PcItemDynamic(listFilesFunc(currentStorage, true))),
 					readline.PcItem("cp", readline.PcItemDynamic(listStorageFilesFunc)),
+
 					readline.PcItem("rm", readline.PcItemDynamic(listFilesFunc(currentStorage, false))),
 					readline.PcItem("exit"),
 				)

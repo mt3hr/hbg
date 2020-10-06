@@ -156,7 +156,14 @@ var (
 							}
 							if !existFile {
 								file = strings.TrimPrefix(file, currentPath)
-								file = strings.TrimPrefix(file, "/")
+
+								isRootItem := strings.HasPrefix(file, "/")
+								if !isRootItem {
+									file = strings.TrimPrefix(file, "/")
+								} else {
+									file = "/" + file
+								}
+
 								stat, err = storage.Stat(file)
 								if err == nil {
 									existFile = true
@@ -175,6 +182,7 @@ var (
 									}
 								}
 							}
+							fmt.Printf("file = %+v\n", file)
 
 							if existFile {
 								if stat.IsDir || !dirOnly {
@@ -227,10 +235,6 @@ var (
 										existFile = true
 									} else {
 										file = filepath.ToSlash(filepath.Dir(file))
-
-										if file == "." {
-											file = "/"
-										}
 
 										stat, err = storage.Stat(file)
 										if err == nil {

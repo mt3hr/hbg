@@ -162,6 +162,11 @@ var (
 									existFile = true
 								} else {
 									file = filepath.ToSlash(filepath.Dir(file))
+
+									if file == "." {
+										file = "/"
+									}
+
 									stat, err = storage.Stat(file)
 									if err == nil {
 										if stat.IsDir || !dirOnly {
@@ -222,6 +227,11 @@ var (
 										existFile = true
 									} else {
 										file = filepath.ToSlash(filepath.Dir(file))
+
+										if file == "." {
+											file = "/"
+										}
+
 										stat, err = storage.Stat(file)
 										if err == nil {
 											if stat.IsDir || !dirOnly {

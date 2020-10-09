@@ -337,18 +337,21 @@ var (
 					if len(spl) == 1 {
 						err := list(currentStorage, currentPath, true, true)
 						if err != nil {
-							log.Fatal(err)
+							fmt.Println(err.Error())
+							continue Loop
 						}
 					} else {
 						dir := spl[1]
 						dir, err := pathResolute(currentStorage, dir, true)
 						if err != nil {
-							log.Fatal(err)
+							fmt.Println(err.Error())
+							continue Loop
 						}
 
 						err = list(currentStorage, dir, true, true)
 						if err != nil {
-							log.Fatal(err)
+							fmt.Println(err.Error())
+							continue Loop
 						}
 					}
 				}
@@ -359,7 +362,8 @@ var (
 
 						currentPath, err = pathResolute(currentStorage, dir, true)
 						if err != nil {
-							log.Fatal(err)
+							fmt.Println(err.Error())
+							continue Loop
 						}
 
 						currentPath = filepath.ToSlash(currentPath)
@@ -387,7 +391,8 @@ var (
 						target := spl[1]
 						err := currentStorage.Delete(target)
 						if err != nil {
-							log.Fatal(err)
+							fmt.Println(err.Error())
+							continue Loop
 						}
 					}
 				}
@@ -415,15 +420,17 @@ var (
 						destPath := destSpl[1]
 						ignores := []string{} //TODO
 
-						expandPathFunc := func(storage hbg.Storage, file string) string {
-							file, err := pathResolute(storage, file, false)
-							if err != nil {
-								log.Fatal(err)
-							}
-							return file
+						srcPath, err = pathResolute(srcStorage, srcPath, false)
+						if err != nil {
+							fmt.Println(err.Error())
+							continue Loop
 						}
-						srcPath = expandPathFunc(srcStorage, srcPath)
-						destPath = expandPathFunc(destStorage, destPath)
+
+						destPath, err = pathResolute(destStorage, destPath, false)
+						if err != nil {
+							fmt.Println(err.Error())
+							continue Loop
+						}
 
 						copy(srcStorage, destStorage, srcPath, destPath, time.Second, ignores, 1)
 					}

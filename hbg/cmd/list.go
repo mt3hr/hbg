@@ -48,10 +48,14 @@ func init() {
 }
 
 const (
-	_        = iota
+	_ = iota
+	// KB .
 	KB int64 = 1 << (10 * iota)
+	// MB .
 	MB
+	// GB .
 	GB
+	// TB .
 	TB
 )
 
@@ -75,7 +79,7 @@ func runList(_ *cobra.Command, _ []string) {
 func list(storage hbg.Storage, path string, long, humanReadable bool) error {
 	fileAndDirs, err := storage.List(path)
 	if err != nil {
-		err = fmt.Errorf("failed to list at %s. %w", err)
+		err = fmt.Errorf("error at list at %s. %w", path, err)
 		return err
 	}
 

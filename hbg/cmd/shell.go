@@ -201,65 +201,64 @@ var (
 							sort.Slice(childItems, func(i, j int) bool { return childItems[i] < childItems[j] })
 
 							return childItems
+						}
+						file = arg
+						currentChildItems := []string{}
+						if file == "" {
+							files, err := storage.List(currentPath)
+							if err != nil {
+								// log.Fatal(err)
+							}
+							for _, f := range files {
+								if f.IsDir || !dirOnly {
+									filepath := filepath.ToSlash(path.Clean(f.Name))
+									currentChildItems = append(currentChildItems, filepath)
+								}
+							}
 						} else {
-							file = arg
-							currentChildItems := []string{}
-							if file == "" {
-								files, err := storage.List(currentPath)
-								if err != nil {
-									// log.Fatal(err)
+							existFile := false
+							var stat *hbg.FileInfo
+							if file != "" {
+								stat, _ = storage.Stat(file)
+								if stat != nil {
+									existFile = true
 								}
-								for _, f := range files {
-									if f.IsDir || !dirOnly {
-										filepath := filepath.ToSlash(path.Clean(f.Name))
-										currentChildItems = append(currentChildItems, filepath)
-									}
-								}
-							} else {
-								existFile := false
-								var stat *hbg.FileInfo
-								if file != "" {
-									stat, _ = storage.Stat(file)
-									if stat != nil {
-										existFile = true
-									}
-								}
-								if !existFile {
-									file = strings.TrimPrefix(file, currentPath)
-									file = strings.TrimPrefix(file, "/")
-									file = path.Join(currentPath, file)
+							}
+							if !existFile {
+								file = strings.TrimPrefix(file, currentPath)
+								file = strings.TrimPrefix(file, "/")
+								file = path.Join(currentPath, file)
+
+								stat, err = storage.Stat(file)
+								if err == nil {
+									existFile = true
+								} else {
+									file = filepath.ToSlash(filepath.Dir(file))
 
 									stat, err = storage.Stat(file)
 									if err == nil {
-										existFile = true
-									} else {
-										file = filepath.ToSlash(filepath.Dir(file))
-
-										stat, err = storage.Stat(file)
-										if err == nil {
-											if stat.IsDir || !dirOnly {
-												existFile = true
-											}
+										if stat.IsDir || !dirOnly {
+											existFile = true
 										}
 									}
 								}
+							}
 
-								files, err := storage.List(file)
-								if err != nil {
-									// log.Fatal(err)
-								}
-								for _, f := range files {
-									if f.IsDir || !dirOnly {
-										file := strings.TrimPrefix(file, currentPath)
-										file = filepath.ToSlash(path.Clean(path.Join(file, f.Name)))
-										file = strings.TrimPrefix(file, "/")
-										currentChildItems = append(currentChildItems, file)
-									}
+							files, err := storage.List(file)
+							if err != nil {
+								// log.Fatal(err)
+							}
+							for _, f := range files {
+								if f.IsDir || !dirOnly {
+									file := strings.TrimPrefix(file, currentPath)
+									file = filepath.ToSlash(path.Clean(path.Join(file, f.Name)))
+									file = strings.TrimPrefix(file, "/")
+									currentChildItems = append(currentChildItems, file)
 								}
 							}
-							sort.Slice(currentChildItems, func(i, j int) bool { return currentChildItems[i] < currentChildItems[j] })
-							return currentChildItems
 						}
+						sort.Slice(currentChildItems, func(i, j int) bool { return currentChildItems[i] < currentChildItems[j] })
+						return currentChildItems
 					}
 				}
 

@@ -30,7 +30,7 @@ func (l *localFileSystem) List(path string) ([]*FileInfo, error) {
 
 	infos := []*FileInfo{}
 	for _, file := range files {
-		stat, err := os.Stat(file.Name())
+		stat, err := os.Stat(filepath.Join(path, file.Name()))
 		if err != nil {
 			err = fmt.Errorf("error at get stat %s: %w", file.Name, err)
 			return nil, err

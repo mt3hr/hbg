@@ -10,7 +10,7 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"bitbucket.org/mt3hr/hbg"
+	"github.com/mt3hr/hbg"
 	"github.com/spf13/cobra"
 )
 

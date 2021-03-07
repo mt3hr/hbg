@@ -18,13 +18,18 @@ import (
 	"google.golang.org/api/drive/v3"
 )
 
-const MIMETYPE_FOLDER = "application/vnd.google-apps.folder"
+var googleDriveMimeTypeFolder = "application/vnd.google-apps.folder"
 
 type googleDrive struct {
 	srv  *drive.Service
 	name string
 }
 
+// NewGoogleDrive .
+// googledriveを読み込みます。
+// nameは任意の名前です。
+// 初回起動時にコマンドライン入力を求められ、
+// $HOME/hbg_config_$name.yamlにキーが保存され、以後楽に接続できるようになります。
 func NewGoogleDrive(name string) (Storage, error) {
 	srv, err := getGoogleDriveService(name)
 	if err != nil {
@@ -37,11 +42,7 @@ func NewGoogleDrive(name string) (Storage, error) {
 	}, nil
 }
 
-func (g *googleDrive) Close() error {
-	g.srv = nil
-	return nil
-}
-
+// ディレクトリ内のファイルを列挙します。
 func (g *googleDrive) List(filepath string) ([]*FileInfo, error) {
 	fileInfos := []*FileInfo{}
 
@@ -59,7 +60,7 @@ func (g *googleDrive) List(filepath string) ([]*FileInfo, error) {
 
 			fileInfo := &FileInfo{
 				Path:  path.Join(filepath, file.Name),
-				IsDir: file.MimeType == MIMETYPE_FOLDER,
+				IsDir: file.MimeType == googleDriveMimeTypeFolder,
 
 				Name:    file.Name,
 				LastMod: modTime,
@@ -73,14 +74,14 @@ func (g *googleDrive) List(filepath string) ([]*FileInfo, error) {
 	sepPath := strings.Split(filepath, "/")
 	files, err := g.listFiles("root")
 	if err != nil {
-		err = fmt.Errorf("failed to list files %s. err", "root", err)
+		err = fmt.Errorf("failed to list files %s: %w", "root", err)
 		return nil, err
 	}
 
 	for i := 0; i < len(sepPath); i++ {
 		nextID := ""
 		for _, file := range files {
-			if sepPath[i] == file.Name && file.MimeType == MIMETYPE_FOLDER {
+			if sepPath[i] == file.Name && file.MimeType == googleDriveMimeTypeFolder {
 				nextID = file.Id
 				break
 			}
@@ -101,7 +102,7 @@ func (g *googleDrive) List(filepath string) ([]*FileInfo, error) {
 
 		fileInfo := &FileInfo{
 			Path:  path.Join(filepath, file.Name),
-			IsDir: file.MimeType == MIMETYPE_FOLDER,
+			IsDir: file.MimeType == googleDriveMimeTypeFolder,
 
 			Name:    file.Name,
 			LastMod: modTime,
@@ -112,63 +113,7 @@ func (g *googleDrive) List(filepath string) ([]*FileInfo, error) {
 	return fileInfos, nil
 }
 
-func (g *googleDrive) Name() string {
-	return g.name
-}
-
-func (g *googleDrive) listFiles(parentID string) ([]*drive.File, error) {
-	files, err := g.srv.Files.List().Q(fmt.Sprintf("'%s' in parents and trashed=false", parentID)).PageSize(1000).Fields("nextPageToken, files(parents, id, name, kind, mimeType, modifiedTime, size)").Do()
-	if files == nil {
-		return nil, err
-	}
-	return files.Files, err
-}
-
-func (g *googleDrive) getFileByPath(filepath string) (*drive.File, error) {
-	d, f := path.Split(filepath)
-	filepath = path.Join(d, f)
-
-	dir, filename := path.Split(filepath)
-	sepPath := strings.Split(dir, "/")
-
-	if filepath == "/" {
-		files, err := g.listFiles("root")
-		if err != nil {
-			err = fmt.Errorf("failed to list files %s. err", "root", err)
-			return nil, err
-		}
-		for _, file := range files {
-			return file, nil
-		}
-	}
-
-	files, err := g.listFiles("root")
-	if err != nil {
-		err = fmt.Errorf("failed to list files %s. err", "root", err)
-		return nil, err
-	}
-
-	for i := 0; i < len(sepPath); i++ {
-		nextID := ""
-		for _, file := range files {
-			if sepPath[i] == file.Name {
-				nextID = file.Id
-				break
-			}
-		}
-		if nextID != "" {
-			files, err = g.listFiles(nextID)
-		}
-	}
-	for _, file := range files {
-		if file.Name != filename {
-			continue
-		}
-		return file, nil
-	}
-	return nil, fmt.Errorf("%s: %s は見つかりませんでした。", g.Type(), filepath)
-}
-
+// ファイルのメタデータを取得します。存在しなかった場合はエラーを返します。
 func (g *googleDrive) Stat(filepath string) (*FileInfo, error) {
 	if filepath == "/" {
 		return &FileInfo{
@@ -195,7 +140,7 @@ func (g *googleDrive) Stat(filepath string) (*FileInfo, error) {
 
 	fileInfo := &FileInfo{
 		Path:  filepath,
-		IsDir: file.MimeType == MIMETYPE_FOLDER,
+		IsDir: file.MimeType == googleDriveMimeTypeFolder,
 
 		Name:    file.Name,
 		LastMod: modTime,
@@ -204,7 +149,7 @@ func (g *googleDrive) Stat(filepath string) (*FileInfo, error) {
 	return fileInfo, nil
 }
 
-// 存在しなかった場合はエラーを返します。
+// ファイルを取得します。存在しなかった場合はエラーを返します。かならずFile.Data.Close()してください。
 func (g *googleDrive) Get(path string) (*File, error) {
 	file, err := g.getFileByPath(path)
 	if err != nil {
@@ -287,6 +232,7 @@ func (g *googleDrive) Push(dirPath string, data *File) error {
 	return nil
 }
 
+// pathとそれの中身をすべて削除します。
 func (g *googleDrive) Delete(path string) error {
 	file, err := g.getFileByPath(path)
 	if err != nil {
@@ -296,6 +242,7 @@ func (g *googleDrive) Delete(path string) error {
 	return g.srv.Files.Delete(file.Id).Do()
 }
 
+// ディレクトリを作成します。
 func (g *googleDrive) MkDir(dirPath string) error {
 	parentDirName, dirName := path.Split(dirPath)
 	if dirName == "" {
@@ -336,8 +283,75 @@ func (g *googleDrive) MkDir(dirPath string) error {
 	return nil
 }
 
+// ストレージタイプを取得します。例えばdropboxならdropboxです
 func (g *googleDrive) Type() string {
 	return "googledrive"
+}
+
+// ストレージ名を取得します。
+func (g *googleDrive) Name() string {
+	return g.name
+}
+
+// このストレージを閉じます。
+func (g *googleDrive) Close() error {
+	g.srv = nil
+	return nil
+}
+
+// ディレクトリの子ファイルを取得します。
+func (g *googleDrive) listFiles(parentID string) ([]*drive.File, error) {
+	files, err := g.srv.Files.List().Q(fmt.Sprintf("'%s' in parents and trashed=false", parentID)).PageSize(1000).Fields("nextPageToken, files(parents, id, name, kind, mimeType, modifiedTime, size)").Do()
+	if files == nil {
+		return nil, err
+	}
+	return files.Files, err
+}
+
+// ファイルパスからdrive.Fileオブジェクトを作成します。
+func (g *googleDrive) getFileByPath(filepath string) (*drive.File, error) {
+	d, f := path.Split(filepath)
+	filepath = path.Join(d, f)
+
+	dir, filename := path.Split(filepath)
+	sepPath := strings.Split(dir, "/")
+
+	if filepath == "/" {
+		files, err := g.listFiles("root")
+		if err != nil {
+			err = fmt.Errorf("failed to list files %s: %w", "root", err)
+			return nil, err
+		}
+		for _, file := range files {
+			return file, nil
+		}
+	}
+
+	files, err := g.listFiles("root")
+	if err != nil {
+		err = fmt.Errorf("failed to list files %s: %w", "root", err)
+		return nil, err
+	}
+
+	for i := 0; i < len(sepPath); i++ {
+		nextID := ""
+		for _, file := range files {
+			if sepPath[i] == file.Name {
+				nextID = file.Id
+				break
+			}
+		}
+		if nextID != "" {
+			files, err = g.listFiles(nextID)
+		}
+	}
+	for _, file := range files {
+		if file.Name != filename {
+			continue
+		}
+		return file, nil
+	}
+	return nil, fmt.Errorf("%s: %s は見つかりませんでした。", g.Type(), filepath)
 }
 
 // Retrieve a token, saves the token, then returns the generated client.

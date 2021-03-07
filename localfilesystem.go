@@ -25,7 +25,7 @@ type localFileSystem struct {
 func (l *localFileSystem) List(path string) ([]*FileInfo, error) {
 	files, err := ioutil.ReadDir(path)
 	if err != nil {
-		err = fmt.Errorf("failed to read directory %s: %w", path, err)
+		err = fmt.Errorf("error at read directory %s %s: %w", path, l.Name(), err)
 		return nil, err
 	}
 
@@ -46,7 +46,7 @@ func (l *localFileSystem) List(path string) ([]*FileInfo, error) {
 func (l *localFileSystem) Stat(path string) (*FileInfo, error) {
 	file, err := os.Stat(path)
 	if err != nil {
-		err = fmt.Errorf("failed to get stat %s: %w", path, err)
+		err = fmt.Errorf("error at get stat %s %s: %w", path, l.Name(), err)
 		return nil, err
 	}
 
@@ -63,7 +63,7 @@ func (l *localFileSystem) Stat(path string) (*FileInfo, error) {
 func (l *localFileSystem) Get(path string) (*File, error) {
 	info, err := os.Stat(path)
 	if err != nil {
-		err = fmt.Errorf("failed to get stat %s: %w", path, err)
+		err = fmt.Errorf("error at get stat %s %s: %w", path, l.Name(), err)
 		return nil, err
 	}
 	file, err := os.OpenFile(path, os.O_RDONLY, os.ModePerm)
@@ -84,7 +84,7 @@ func (l *localFileSystem) Get(path string) (*File, error) {
 func (l *localFileSystem) Push(dirPath string, data *File) error {
 	err := l.MkDir(dirPath)
 	if err != nil {
-		err = fmt.Errorf("failed to create directory %s: %w", dirPath, err)
+		err = fmt.Errorf("error at create directory %s %s: %w", dirPath, l.Name(), err)
 		return err
 	}
 
@@ -99,7 +99,7 @@ func (l *localFileSystem) Push(dirPath string, data *File) error {
 
 	_, err = io.Copy(file, data.Data)
 	if err != nil {
-		err = fmt.Errorf("failed to write data to file %s: %w", file.Name(), err)
+		err = fmt.Errorf("error at write data to file %s %s: %w", file.Name(), l.Name(), err)
 		return err
 	}
 

@@ -7,10 +7,13 @@ import (
 	"path/filepath"
 
 	"github.com/mitchellh/go-homedir"
+	"github.com/mt3hr/hbg"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
 
+// Execute .
+// コマンドを実行します。main関数から呼び出されます。
 func Execute() {
 	err := rootCmd.Execute()
 	if err != nil {
@@ -18,7 +21,9 @@ func Execute() {
 	}
 }
 
-type Cfg struct {
+// Config .
+// コンフィグファイルのデータモデル
+type Config struct {
 	Dropbox []struct {
 		Name  string
 		Token string
@@ -29,12 +34,6 @@ type Cfg struct {
 	Local struct {
 		Name string
 	}
-	FTP []struct {
-		Name     string
-		Address  string
-		UserName string
-		Password string
-	}
 }
 
 var (
@@ -42,7 +41,7 @@ var (
 		PersistentPreRun: func(_ *cobra.Command, _ []string) {
 			err := loadConfig()
 			if err != nil {
-				err = fmt.Errorf("failed to load config file: %w", err)
+				err = fmt.Errorf("error at load config file: %w", err)
 				log.Fatal(err)
 			}
 		},
@@ -53,7 +52,7 @@ var (
 		configFile string
 	}{}
 
-	cfg = &Cfg{}
+	cfg = &Config{}
 )
 
 func init() {
@@ -112,7 +111,7 @@ func loadConfig() error {
 		v.SetConfigName(configName)
 		exe, err := os.Executable()
 		if err != nil {
-			err = fmt.Errorf("failed to get executable file path: %w", err)
+			err = fmt.Errorf("error at get executable file path: %w", err)
 			log.Printf(err.Error())
 		} else {
 			v.AddConfigPath(filepath.Dir(exe))
@@ -122,7 +121,7 @@ func loadConfig() error {
 
 		home, err := homedir.Dir()
 		if err != nil {
-			err = fmt.Errorf("failed to get user home directory: %w", err)
+			err = fmt.Errorf("error at get user home directory: %w", err)
 			log.Printf(err.Error())
 		} else {
 			v.AddConfigPath(home)
@@ -137,7 +136,7 @@ func loadConfig() error {
 		configDir := ""
 		home, err := homedir.Dir()
 		if err != nil {
-			err = fmt.Errorf("failed to get user home directory: %w", err)
+			err = fmt.Errorf("error at get user home directory: %w", err)
 			log.Printf(err.Error())
 			configDir = "."
 		} else {
@@ -149,7 +148,7 @@ func loadConfig() error {
 		v.SetConfigFile(configFileName)
 		err = v.WriteConfig()
 		if err != nil {
-			err = fmt.Errorf("failed to write config to %s: %w", configFileName, err)
+			err = fmt.Errorf("error at write config to %s: %w", configFileName, err)
 			return err
 		}
 	}
@@ -162,7 +161,7 @@ func loadConfig() error {
 	return nil
 }
 
-func storageMapFromConfig(c *Cfg) (map[string]hbg.Storage, error) {
+func storageMapFromConfig(c *Config) (map[string]hbg.Storage, error) {
 	storages := map[string]hbg.Storage{}
 
 	// localの読み込み
@@ -197,20 +196,5 @@ func storageMapFromConfig(c *Cfg) (map[string]hbg.Storage, error) {
 		}
 		storages[gdvCfg.Name] = googleDrive
 	}
-
-	// ftpの読み込み
-	for _, ftpCfg := range c.FTP {
-		ftp, err := hbg.NewFTP(ftpCfg.Address, ftpCfg.UserName, ftpCfg.Password, ftpCfg.Name)
-		if err != nil {
-			log.Fatal(err)
-		}
-		_, exist := storages[ftpCfg.Name]
-		if exist {
-			err := fmt.Errorf("confrict name of ftp storage '%s'", ftpCfg.Name)
-			return nil, err
-		}
-		storages[ftpCfg.Name] = ftp
-	}
-
 	return storages, nil
 }

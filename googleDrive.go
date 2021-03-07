@@ -33,7 +33,7 @@ type googleDrive struct {
 func NewGoogleDrive(name string) (Storage, error) {
 	srv, err := getGoogleDriveService(name)
 	if err != nil {
-		err = fmt.Errorf("load google drive failed. %w", err)
+		err = fmt.Errorf("load google drive failed %s. %w", name, err)
 		return nil, err
 	}
 	return &googleDrive{
@@ -74,7 +74,7 @@ func (g *googleDrive) List(filepath string) ([]*FileInfo, error) {
 	sepPath := strings.Split(filepath, "/")
 	files, err := g.listFiles("root")
 	if err != nil {
-		err = fmt.Errorf("failed to list files %s: %w", "root", err)
+		err = fmt.Errorf("error at list files %s %s: %w", "root", g.Name(), err)
 		return nil, err
 	}
 
@@ -196,12 +196,12 @@ func (g *googleDrive) Push(dirPath string, data *File) error {
 		if err != nil {
 			err = g.MkDir(dirPath)
 			if err != nil {
-				err = fmt.Errorf("failed to mkdir %s. %w", dirPath, err)
+				err = fmt.Errorf("error at mkdir %s at %s: %w", dirPath, g.Name(), err)
 				return err
 			}
 			dir, err = g.getFileByPath(dirPath)
 			if err != nil {
-				err = fmt.Errorf("failed get file by path %s. %w", dirPath, err)
+				err = fmt.Errorf("error at get file by path %s at %s: %w", dirPath, g.Name(), err)
 				return err
 			}
 		}
@@ -217,14 +217,14 @@ func (g *googleDrive) Push(dirPath string, data *File) error {
 	if !exist {
 		_, err = g.srv.Files.Create(file).Media(data.Data).Do()
 		if err != nil {
-			err = fmt.Errorf("failed to create %s. %w", path.Join(dirPath, data.Name), err)
+			err = fmt.Errorf("error at create %s at %s. %w", path.Join(dirPath, data.Name), g.Name(), err)
 			return err
 		}
 	} else {
 		file.Parents = nil
 		_, err = g.srv.Files.Update(existDriveFile.Id, file).Media(data.Data).Do()
 		if err != nil {
-			err = fmt.Errorf("failed to update %s. %w", path.Join(dirPath, data.Name), err)
+			err = fmt.Errorf("error at update %s at %s. %w", path.Join(dirPath, data.Name), g.Name(), err)
 			return err
 		}
 	}
@@ -236,7 +236,7 @@ func (g *googleDrive) Push(dirPath string, data *File) error {
 func (g *googleDrive) Delete(path string) error {
 	file, err := g.getFileByPath(path)
 	if err != nil {
-		err = fmt.Errorf("failed get file by path %s. %w", path, err)
+		err = fmt.Errorf("error at get file by path %s at %s. %w", path, g.Name(), err)
 		return err
 	}
 	return g.srv.Files.Delete(file.Id).Do()
@@ -319,7 +319,7 @@ func (g *googleDrive) getFileByPath(filepath string) (*drive.File, error) {
 	if filepath == "/" {
 		files, err := g.listFiles("root")
 		if err != nil {
-			err = fmt.Errorf("failed to list files %s: %w", "root", err)
+			err = fmt.Errorf("error at list files %s at %s: %w", "root", g.Name(), err)
 			return nil, err
 		}
 		for _, file := range files {
@@ -329,7 +329,7 @@ func (g *googleDrive) getFileByPath(filepath string) (*drive.File, error) {
 
 	files, err := g.listFiles("root")
 	if err != nil {
-		err = fmt.Errorf("failed to list files %s: %w", "root", err)
+		err = fmt.Errorf("error at list files %s at %s: %w", "root", g.Name(), err)
 		return nil, err
 	}
 
@@ -359,12 +359,12 @@ func getClient(config *oauth2.Config, name string) (*http.Client, error) {
 	tokenFileName := fmt.Sprintf("hbg_token_%s_%s.json", "googledrive", name)
 	home, err := homedir.Dir()
 	if err != nil {
-		err = fmt.Errorf("failed to get user home directory: %w", err)
+		err = fmt.Errorf("error at get user home directory: %w", err)
 		return nil, err
 	}
 	exe, err := os.Executable()
 	if err != nil {
-		err = fmt.Errorf("failed to get execute directory: %w", err)
+		err = fmt.Errorf("error at get execute directory: %w", err)
 		return nil, err
 	}
 	exe = filepath.Dir(exe)

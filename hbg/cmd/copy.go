@@ -96,7 +96,7 @@ func runCopy(_ *cobra.Command, _ []string) {
 	var srcStorage, destStorage hbg.Storage
 	storages, err := storageMapFromConfig(cfg)
 	if err != nil {
-		err = fmt.Errorf("failed to load storagemap from config: %w", err)
+		err = fmt.Errorf("error at load storagemap from config: %w", err)
 		log.Fatal(err)
 	}
 	srcStorage, exist := storages[copyOpt.srcStorage]
@@ -112,7 +112,7 @@ func runCopy(_ *cobra.Command, _ []string) {
 
 	err = copy(srcStorage, destStorage, copyOpt.srcPath, copyOpt.destDirPath, copyOpt.updateDuration, copyOpt.ignore, copyOpt.worker)
 	if err != nil {
-		err = fmt.Errorf("failed to copy file from %s:%s to %s:%s: %w", srcStorage.Type(), copyOpt.srcPath, destStorage.Type(), copyOpt.destDirPath, err)
+		err = fmt.Errorf("error at copy file from %s:%s to %s:%s: %w", srcStorage.Type(), copyOpt.srcPath, destStorage.Type(), copyOpt.destDirPath, err)
 		log.Fatal(err)
 	}
 }
@@ -144,7 +144,7 @@ func cp(srcStorage, destStorage hbg.Storage, srcPath, destDirPath string, update
 		parentDir = filepath.ToSlash(parentDir)
 		srcFiles, err := srcStorage.List(parentDir)
 		if err != nil {
-			err = fmt.Errorf("failed list %s at %s. %w", parentDir, srcStorage.Type())
+			err = fmt.Errorf("failed list %s at %s: %w", parentDir, srcStorage.Type(), err)
 			return err
 		}
 		srcFileInfos, err = glob(srcFiles, srcPath)
@@ -168,13 +168,13 @@ func cp(srcStorage, destStorage hbg.Storage, srcPath, destDirPath string, update
 				}
 				err = destStorage.MkDir(destDirPath)
 				if err != nil {
-					err = fmt.Errorf("failed to create directory %s:%s: %w", destStorage.Type(), destDirPath, err)
+					err = fmt.Errorf("error at create directory %s:%s: %w", destStorage.Type(), destDirPath, err)
 					return err
 				}
 			}
 			destFileInfos, err = destStorage.List(destDirPath)
 			if err != nil {
-				err = fmt.Errorf("failed to list directory %s:%s: %w", destStorage.Type(), destDirPath, err)
+				err = fmt.Errorf("error at list directory %s:%s: %w", destStorage.Type(), destDirPath, err)
 				return err
 			}
 		}
@@ -227,13 +227,13 @@ Loop:
 					}
 					err = destStorage.MkDir(destDirPath)
 					if err != nil {
-						err = fmt.Errorf("failed to create directory %s:%s: %w", destStorage.Type(), destDirPath, err)
+						err = fmt.Errorf("error at create directory %s:%s: %w", destStorage.Type(), destDirPath, err)
 						return err
 					}
 				}
 				destFileInfos, err = destStorage.List(destDirPath)
 				if err != nil {
-					err = fmt.Errorf("failed to list directory %s:%s: %w", destStorage.Type(), destDirPath, err)
+					err = fmt.Errorf("error at list directory %s:%s: %w", destStorage.Type(), destDirPath, err)
 					return err
 				}
 			}
@@ -244,7 +244,7 @@ Loop:
 			}
 			srcFiles, err := srcStorage.List(srcParentDir)
 			if err != nil {
-				err = fmt.Errorf("failed list %s at %s. %w", srcParentDir, srcStorage.Type())
+				err = fmt.Errorf("failed list %s at %s. %w", srcParentDir, srcStorage.Type(), err)
 				return err
 			}
 
@@ -313,7 +313,7 @@ func copyFileWorker(q <-chan *copyFileArg, wg *sync.WaitGroup) {
 		}
 		err := copyFile(arg.srcStorage, arg.destStorage, arg.srcFilePath, arg.destDirPath)
 		if err != nil {
-			err = fmt.Errorf("failed to copy file from %s:%s to %s:%s: %w", arg.srcStorage.Type(), arg.srcFilePath, arg.destStorage.Type(), arg.destDirPath, err)
+			err = fmt.Errorf("error at copy file from %s:%s to %s:%s: %w", arg.srcStorage.Type(), arg.srcFilePath, arg.destStorage.Type(), arg.destDirPath, err)
 			log.Printf("%s\n", err)
 		}
 	}
@@ -330,13 +330,13 @@ func copyFile(srcStorage, destStorage hbg.Storage, srcFilePath, destDirPath stri
 	fmt.Printf("copy %s:%s -> %s:%s\n", srcStorage.Type(), srcFilePath, destStorage.Type(), destDirPath)
 	file, err := srcStorage.Get(srcFilePath)
 	if err != nil {
-		err = fmt.Errorf("failed to get %s:%s : %w", srcStorage.Type(), srcFilePath, err)
+		err = fmt.Errorf("error at get %s:%s : %w", srcStorage.Type(), srcFilePath, err)
 		return err
 	}
 	defer file.Data.Close()
 	err = destStorage.Push(destDirPath, file)
 	if err != nil {
-		err = fmt.Errorf("failed to push from %s:%s to %s:%s : %w", srcStorage.Type(), srcFilePath, destStorage.Type(), destDirPath, err)
+		err = fmt.Errorf("error at push from %s:%s to %s:%s : %w", srcStorage.Type(), srcFilePath, destStorage.Type(), destDirPath, err)
 		return err
 	}
 	return nil

@@ -36,7 +36,7 @@ func TimeToDropbox(t time.Time) time.Time {
 func NewDropbox(name string) (Storage, error) {
 	token, err := loadTokenFromName(name)
 	if err != nil {
-		err = fmt.Errorf("load token filed. %w", err)
+		err = fmt.Errorf("load token filed %s. %w", name, err)
 		return nil, err
 	}
 
@@ -109,7 +109,7 @@ func (d *dropbox) Stat(filepath string) (*FileInfo, error) {
 
 	metadata, err := d.Client.GetMetadata(dbx.NewGetMetadataArg(filepath))
 	if err != nil {
-		err = fmt.Errorf("failed to get %s metadata from dropbox: %w", filepath, err)
+		err = fmt.Errorf("error at get %s metadata from dropbox %s: %w", filepath, d.Name(), err)
 		return nil, err
 	}
 	return metadataToFileInfo(metadata)
@@ -135,7 +135,7 @@ func (d *dropbox) Get(filepath string) (*File, error) {
 
 	metadata, data, err := d.Client.Download(dbx.NewDownloadArg(filepath))
 	if err != nil {
-		err = fmt.Errorf("failed to download %s from dropbox: %w", filepath, err)
+		err = fmt.Errorf("error at download %s from dropbox %s: %w", filepath, d.Name(), err)
 		return nil, err
 	}
 	return &File{
@@ -182,7 +182,7 @@ func (d *dropbox) Push(dirPath string, data *File) error {
 	if uint64(data.Size) < dropboxChunkSize {
 		_, err = client.Upload(commitInfo, getNextChunk())
 		if err != nil {
-			err = fmt.Errorf("failed to upload %s at dropbox: %w", path, err)
+			err = fmt.Errorf("error at upload %s at dropbox %s: %w", path, d.Name(), err)
 			return err
 		}
 		return nil
@@ -190,7 +190,7 @@ func (d *dropbox) Push(dirPath string, data *File) error {
 	sarg := dbx.NewUploadSessionStartArg()
 	res, err := client.UploadSessionStart(sarg, getNextChunk())
 	if err != nil {
-		err = fmt.Errorf("failed to upload session start %s at dropbox: %w", path, err)
+		err = fmt.Errorf("error at upload session start %s at dropbox %s: %w", path, d.Name(), err)
 		return err
 	}
 
@@ -203,7 +203,7 @@ func (d *dropbox) Push(dirPath string, data *File) error {
 
 		err := client.UploadSessionAppendV2(aarg, getNextChunk())
 		if err != nil {
-			err = fmt.Errorf("failed to upload session append %s at dropbox: %w", path, err)
+			err = fmt.Errorf("error at upload session append %s at dropbox %s: %w", path, d.Name(), err)
 			return err
 		}
 		uploaded += dropboxChunkSize
@@ -214,7 +214,7 @@ func (d *dropbox) Push(dirPath string, data *File) error {
 	farg := dbx.NewUploadSessionFinishArg(c, commitInfo)
 	_, err = client.UploadSessionFinish(farg, getNextChunk())
 	if err != nil {
-		err = fmt.Errorf("failed to upload session finish %s at dropbox: %w", path, err)
+		err = fmt.Errorf("error at upload session finish %s at dropbox %s: %w", path, d.Name(), err)
 		return err
 	}
 	return nil
@@ -231,7 +231,7 @@ func (d *dropbox) Delete(filepath string) error {
 
 	_, err := d.Client.DeleteV2(dbx.NewDeleteArg(filepath))
 	if err != nil {
-		err = fmt.Errorf("failed to delete %s: %w", filepath, err)
+		err = fmt.Errorf("error at delete %s from dropbox %s: %w", filepath, d.Name(), err)
 		return err
 	}
 	return nil
@@ -248,7 +248,7 @@ func (d *dropbox) MkDir(filepath string) error {
 
 	_, err := d.Client.CreateFolderV2(dbx.NewCreateFolderArg(filepath))
 	if err != nil {
-		err = fmt.Errorf("failed to create folder %s at dropbox: %w", filepath, err)
+		err = fmt.Errorf("error at create folder %s at dropbox %s: %w", filepath, d.Name(), err)
 		return err
 	}
 	return nil
@@ -279,12 +279,12 @@ func (d *dropbox) isDir(filepath string) (bool, error) {
 	arg := dbx.NewGetMetadataArg(filepath)
 	metadata, err := d.Client.GetMetadata(arg)
 	if err != nil {
-		err = fmt.Errorf("failed to get %s metadata at dropbox: %w", filepath, err)
+		err = fmt.Errorf("error at get %s metadata at dropbox from %s: %w", filepath, d.Name(), err)
 		return false, err
 	}
 	fileInfo, err := metadataToFileInfo(metadata)
 	if err != nil {
-		err = fmt.Errorf("failed to metadataToFileInfo %s: %w", filepath, err)
+		err = fmt.Errorf("error at metadataToFileInfo %s from %s: %w", filepath, d.Name(), err)
 		return false, err
 	}
 	return fileInfo.IsDir, nil
@@ -298,7 +298,7 @@ func (d *dropbox) listFolder(dirpath string) (map[dbx.IsMetadata]interface{}, er
 	client := d.Client
 	res, err := client.ListFolder(dbx.NewListFolderArg(dirpath))
 	if err != nil {
-		err = fmt.Errorf("failed to list folder %s at dropbox: %w", dirpath, err)
+		err = fmt.Errorf("error at list folder %s at dropbox %s: %w", dirpath, d.Name(), err)
 		return nil, err
 	}
 	metadatas := map[dbx.IsMetadata]interface{}{}
@@ -309,7 +309,7 @@ func (d *dropbox) listFolder(dirpath string) (map[dbx.IsMetadata]interface{}, er
 	for res.HasMore {
 		res, err = client.ListFolderContinue(dbx.NewListFolderContinueArg(res.Cursor))
 		if err != nil {
-			err = fmt.Errorf("failed to list folder more %s at dropbox: %w", dirpath, err)
+			err = fmt.Errorf("error at list folder more %s at dropbox %s: %w", dirpath, d.Name(), err)
 			return nil, err
 		}
 		for _, metadata := range res.Entries {
@@ -343,24 +343,6 @@ func metadataToFileInfo(metadata dbx.IsMetadata) (*FileInfo, error) {
 	return nil, err
 }
 
-/*
-func (d *dropbox) Move(srcPath, destPath string) error {
-	dir, f := path.Split(srcPath)
-	srcPath = path.Join(dir, f)
-
-	dir, f = path.Split(destPath)
-	destPath = path.Join(dir, f)
-
-	arg := dbx.NewRelocationArg(srcPath, destPath)
-	_, err := d.Client.Move(arg)
-	if err != nil {
-		err = fmt.Errorf("failed to move files from %s to %s at dropbox: %w", srcPath, destPath, err)
-		return err
-	}
-	return nil
-}
-*/
-
 // ルートディレクトリは空文字で表現されるので予め解決しておくためのもの
 func (d *dropbox) pre(path *string) error {
 	*path = filepath.ToSlash(*path)
@@ -376,12 +358,12 @@ func loadTokenFromName(name string) (string, error) {
 	tokenFileName := fmt.Sprintf("hbg_token_%s_%s.json", "dropbox", name)
 	home, err := homedir.Dir()
 	if err != nil {
-		err = fmt.Errorf("failed to get user home directory: %w", err)
+		err = fmt.Errorf("error at get user home directory: %w", err)
 		return "", err
 	}
 	exe, err := os.Executable()
 	if err != nil {
-		err = fmt.Errorf("failed to get execute directory: %w", err)
+		err = fmt.Errorf("error at get execute directory: %w", err)
 		return "", err
 	}
 	exe = filepath.Dir(exe)

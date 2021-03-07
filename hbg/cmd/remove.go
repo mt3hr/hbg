@@ -54,7 +54,7 @@ func runRemove(_ *cobra.Command, _ []string) {
 func remove(storage hbg.Storage, path string) error {
 	err := storage.Delete(path)
 	if err != nil {
-		err = fmt.Errorf("failed to delete %s. %w", removeOpt.targetPath, err)
+		err = fmt.Errorf("error at delete %s. %w", removeOpt.targetPath, err)
 		return err
 	}
 	return nil

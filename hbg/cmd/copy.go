@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"bitbucket.org/mt3hr/hbg"
 	glb "github.com/gobwas/glob"
+	"github.com/mt3hr/hbg"
 	"github.com/spf13/cobra"
 )
 

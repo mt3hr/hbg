@@ -3,7 +3,6 @@ package hbg
 import (
 	"fmt"
 	"io"
-	"io/ioutil"
 	"log"
 	"os"
 	"path/filepath"
@@ -23,7 +22,7 @@ type localFileSystem struct {
 
 // ディレクトリ内のファイルを列挙します。
 func (l *localFileSystem) List(path string) ([]*FileInfo, error) {
-	files, err := ioutil.ReadDir(path)
+	files, err := os.ReadDir(path)
 	if err != nil {
 		err = fmt.Errorf("error at read directory %s %s: %w", path, l.Name(), err)
 		return nil, err
@@ -31,12 +30,18 @@ func (l *localFileSystem) List(path string) ([]*FileInfo, error) {
 
 	infos := []*FileInfo{}
 	for _, file := range files {
+		stat, err := os.Stat(file.Name())
+		if err != nil {
+			err = fmt.Errorf("error at get stat %s: %w", file.Name, err)
+			return nil, err
+		}
+
 		infos = append(infos, &FileInfo{
 			Path:    filepath.ToSlash(filepath.Join(path, file.Name())),
 			IsDir:   file.IsDir(),
 			Name:    filepath.Base(file.Name()),
-			Size:    file.Size(),
-			LastMod: file.ModTime(),
+			Size:    stat.Size(),
+			LastMod: stat.ModTime(),
 		})
 	}
 	return infos, nil

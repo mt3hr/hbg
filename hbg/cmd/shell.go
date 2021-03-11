@@ -19,7 +19,7 @@ var (
 	shellCmd = &cobra.Command{
 		Use: "shell",
 		Run: func(_ *cobra.Command, _ []string) {
-			storages, err := storageMapFromConfig(cfg)
+			storages, err := storageMapFromConfig(config)
 			if err != nil {
 				err = fmt.Errorf("failed load storages. %w", err)
 				log.Fatal(err)

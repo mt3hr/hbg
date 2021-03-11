@@ -49,10 +49,10 @@ var (
 	}
 
 	rootOpt = &struct {
-		configFile string
+		configfile string
 	}{}
 
-	cfg = &Config{}
+	config = &Config{}
 )
 
 func init() {
@@ -62,103 +62,7 @@ func init() {
 	rootCmd.AddCommand(shellCmd)
 
 	rootPf := rootCmd.PersistentFlags()
-	rootPf.StringVar(&rootOpt.configFile, "config_file", "", "コンフィグファイル")
-}
-
-// コンフィグファイルを読み込みます。
-// コマンドラインオプション（viperとBindされているはず）から指定されていればそこから、
-// そうでなければ、実行ファイルの親ディレクトリ、カレントディレクトリ、ホームディレクトリの順に、
-// configFileNameなファイルを探索して読み込みます。
-func loadConfig() error {
-	///////////////////////////////////////////////////////////////
-	// ここから
-	///////////////////////////////////////////////////////////////
-	configOpt := rootOpt.configFile
-	config := cfg
-	configName := "hbg_config"
-	configExt := ".yaml"
-	createDefaultConfig := func() *viper.Viper {
-		v := viper.New()
-
-		v.Set("dropbox", []struct {
-			Name string
-		}{{
-			Name: "dropbox",
-		}})
-		v.Set("local", struct {
-			Name string
-		}{
-			Name: "local",
-		})
-		v.Set("googledrive", []struct {
-			Name string
-		}{{
-			Name: "googledrive",
-		}})
-
-		return v
-	}
-	///////////////////////////////////////////////////////////////
-	// ここまで
-	///////////////////////////////////////////////////////////////
-
-	v := viper.New()
-	if configOpt != "" {
-		// コンフィグファイルが明示的に指定された場合はそれを
-		v.SetConfigFile(configOpt)
-	} else {
-		// 実行ファイルの親ディレクトリ、カレントディレクトリ、ホームディレクトリの順に
-		v.SetConfigName(configName)
-		exe, err := os.Executable()
-		if err != nil {
-			err = fmt.Errorf("error at get executable file path: %w", err)
-			log.Printf(err.Error())
-		} else {
-			v.AddConfigPath(filepath.Dir(exe))
-		}
-
-		v.AddConfigPath(".")
-
-		home, err := homedir.Dir()
-		if err != nil {
-			err = fmt.Errorf("error at get user home directory: %w", err)
-			log.Printf(err.Error())
-		} else {
-			v.AddConfigPath(home)
-		}
-	}
-
-	// 読み込んでcfgを作成する
-	err := v.ReadInConfig()
-	if err != nil {
-		// コンフィグファイルが存在しない場合はホームディレクトリに作成する
-		// なければカレントディレクトリ
-		configDir := ""
-		home, err := homedir.Dir()
-		if err != nil {
-			err = fmt.Errorf("error at get user home directory: %w", err)
-			log.Printf(err.Error())
-			configDir = "."
-		} else {
-			configDir = home
-		}
-
-		v = createDefaultConfig()
-		configFileName := filepath.Join(configDir, configName+configExt)
-		v.SetConfigFile(configFileName)
-		err = v.WriteConfig()
-		if err != nil {
-			err = fmt.Errorf("error at write config to %s: %w", configFileName, err)
-			return err
-		}
-	}
-
-	err = v.Unmarshal(config)
-	if err != nil {
-		err = fmt.Errorf("failed unmarshal config file: %w", err)
-		return err
-	}
-	return nil
+	rootPf.StringVar(&rootOpt.configfile, "config_file", "", "コンフィグファイル")
 }
 
 func storageMapFromConfig(c *Config) (map[string]hbg.Storage, error) {
@@ -197,4 +101,132 @@ func storageMapFromConfig(c *Config) (map[string]hbg.Storage, error) {
 		storages[gdvCfg.Name] = googleDrive
 	}
 	return storages, nil
+}
+
+func getConfigFile() string {
+	return rootOpt.configfile
+}
+func getConfig() *Config {
+	return config
+}
+func getConfigName() string {
+	return "hbg_config"
+}
+func getConfigExt() string {
+	return ".yaml"
+}
+func createDefaultConfig() (*viper.Viper, error) {
+	v := viper.New()
+
+	v.Set("dropbox", []struct {
+		Name string
+	}{{
+		Name: "dropbox",
+	}})
+	v.Set("local", struct {
+		Name string
+	}{
+		Name: "local",
+	})
+	v.Set("googledrive", []struct {
+		Name string
+	}{{
+		Name: "googledrive",
+	}})
+
+	return v, nil
+}
+
+func loadConfig() error {
+	configOpt := getConfigFile()
+	config := getConfig()
+	configName := getConfigName()
+	configExt := getConfigExt()
+	createDefaultConfig := createDefaultConfig
+
+	v := viper.New()
+	configPaths := []string{}
+	if configOpt != "" {
+		// コンフィグファイルが明示的に指定された場合はそれを
+		v.SetConfigFile(configOpt)
+		configPaths = append(configPaths, configOpt)
+	} else {
+		// 実行ファイルの親ディレクトリ、カレントディレクトリ、ホームディレクトリの順に
+		v.SetConfigName(configName)
+		exe, err := os.Executable()
+		if err != nil {
+			err = fmt.Errorf("error at get executable file path: %w", err)
+			log.Printf(err.Error())
+		} else {
+			v.AddConfigPath(filepath.Dir(exe))
+			configPaths = append(configPaths, filepath.Dir(exe))
+		}
+
+		v.AddConfigPath(".")
+		configPaths = append(configPaths, ".")
+
+		home, err := homedir.Dir()
+		if err != nil {
+			err = fmt.Errorf("error at get user home directory: %w", err)
+			log.Printf(err.Error())
+		} else {
+			v.AddConfigPath(home)
+			configPaths = append(configPaths, home)
+		}
+	}
+
+	// 読み込んでcfgを作成する
+	existConfigPath := false
+	for _, configPath := range configPaths {
+		if _, err := os.Stat(configPath); err == nil {
+			existConfigPath = true
+			break
+		}
+	}
+	if !existConfigPath {
+		// コンフィグファイルが指定されていなくてコンフィグファイルが見つからなかった場合、
+		// ホームディレクトリにデフォルトコンフィグファイルを作成する。
+		// できなければカレントディレクトリにコンフィグファイルを作成する。
+		if configOpt == "" {
+			configDir := ""
+			home, err := homedir.Dir()
+			if err != nil {
+				err = fmt.Errorf("error at get user home directory: %w", err)
+				log.Printf(err.Error())
+				configDir = "."
+			} else {
+				configDir = home
+			}
+
+			v, err = createDefaultConfig()
+			if err != nil {
+				err = fmt.Errorf("error at create defaul config: %w", err)
+				return err
+			}
+
+			configFileName := filepath.Join(configDir, configName+configExt)
+			v.SetConfigFile(configFileName)
+			err = v.WriteConfig()
+			if err != nil {
+				err = fmt.Errorf("error at write config to %s: %w", configFileName, err)
+				return err
+			}
+		} else {
+			err := fmt.Errorf("コンフィグファイルが見つかりませんでした。")
+			return err
+		}
+	}
+
+	err := v.ReadInConfig()
+	if err != nil {
+		err = fmt.Errorf("error at read in config: %w", err)
+		return err
+	}
+
+	err = v.Unmarshal(config)
+	if err != nil {
+		err = fmt.Errorf("error at unmarshal config file: %w", err)
+		return err
+	}
+	return nil
 }

@@ -35,7 +35,7 @@ var (
 )
 
 func runRemove(_ *cobra.Command, _ []string) {
-	storages, err := storageMapFromConfig(cfg)
+	storages, err := storageMapFromConfig(config)
 	if err != nil {
 		err = fmt.Errorf("load storage failed. %w", err)
 		log.Fatal(err)

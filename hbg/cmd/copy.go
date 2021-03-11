@@ -94,7 +94,7 @@ func init() {
 
 func runCopy(_ *cobra.Command, _ []string) {
 	var srcStorage, destStorage hbg.Storage
-	storages, err := storageMapFromConfig(cfg)
+	storages, err := storageMapFromConfig(config)
 	if err != nil {
 		err = fmt.Errorf("error at load storagemap from config: %w", err)
 		log.Fatal(err)

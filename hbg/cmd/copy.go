@@ -130,12 +130,26 @@ func glob(files []*hbg.FileInfo, pattern string) ([]*hbg.FileInfo, error) {
 }
 
 func copy(srcStorage, destStorage hbg.Storage, srcPath, destDirPath string, updateDuration time.Duration, ignores []string, worker int) error {
-	return cp(srcStorage, destStorage, srcPath, destDirPath, updateDuration, ignores, worker, nil, nil)
+	// ワーカー
+	q := make(chan *copyFileArg, worker)
+	wg := &sync.WaitGroup{}
+	for i := 0; i < worker; i++ {
+		wg.Add(1)
+		go copyFileWorker(q, wg)
+	}
+	err := copyImpl(q, srcStorage, destStorage, srcPath, destDirPath, updateDuration, ignores, nil, nil)
+	if err != nil {
+		err = fmt.Errorf("error at cp: %w", err)
+		return err
+	}
+	close(q)
+	wg.Wait()
+	return nil
 }
 
 // destFileInfosは、移動先フォルダをListしたもの。
 // srcFileInfosは、移動元フォルダをListしたもの。
-func cp(srcStorage, destStorage hbg.Storage, srcPath, destDirPath string, updateDuration time.Duration, ignores []string, worker int, srcFileInfos []*hbg.FileInfo, destFileInfos []*hbg.FileInfo) error {
+func copyImpl(q chan *copyFileArg, srcStorage, destStorage hbg.Storage, srcPath, destDirPath string, updateDuration time.Duration, ignores []string, srcFileInfos []*hbg.FileInfo, destFileInfos []*hbg.FileInfo) error {
 	// どちらもディレクトリの場合
 	var err error
 
@@ -178,14 +192,6 @@ func cp(srcStorage, destStorage hbg.Storage, srcPath, destDirPath string, update
 				return err
 			}
 		}
-	}
-
-	// ワーカー
-	q := make(chan *copyFileArg, worker)
-	wg := &sync.WaitGroup{}
-	for i := 0; i < worker; i++ {
-		wg.Add(1)
-		go copyFileWorker(q, wg)
 	}
 
 Loop:
@@ -250,7 +256,8 @@ Loop:
 
 			for _, file := range files {
 				if file.IsDir {
-					err = cp(srcStorage, destStorage, filepath.ToSlash(file.Path), destDirPath, updateDuration, ignores, worker, nil, nil)
+					defer close(q)
+					err = copyImpl(q, srcStorage, destStorage, filepath.ToSlash(file.Path), destDirPath, updateDuration, ignores, nil, nil)
 					if err != nil {
 						return err
 					}
@@ -262,7 +269,7 @@ Loop:
 						}
 					}
 
-					err = cp(srcStorage, destStorage, filepath.ToSlash(file.Path), destDirPath, updateDuration, ignores, worker, matchSrcFiles, destFileInfos)
+					err = copyImpl(q, srcStorage, destStorage, filepath.ToSlash(file.Path), destDirPath, updateDuration, ignores, matchSrcFiles, destFileInfos)
 					if err != nil {
 						return err
 					}
@@ -298,9 +305,6 @@ Loop:
 			destDirPath: destDirPath,
 		}
 	}
-
-	close(q)
-	wg.Wait()
 	return nil
 }
 

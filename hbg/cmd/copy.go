@@ -289,7 +289,6 @@ Loop:
 
 			for _, file := range files {
 				if file.IsDir {
-					defer close(q)
 					err = aggregateCopyFileArgs(q, srcStorage, destStorage, filepath.ToSlash(file.Path), destDirPath, updateDuration, ignores, nil, nil)
 					if err != nil {
 						return err

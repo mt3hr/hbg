@@ -131,25 +131,58 @@ func glob(files []*hbg.FileInfo, pattern string) ([]*hbg.FileInfo, error) {
 
 func copy(srcStorage, destStorage hbg.Storage, srcPath, destDirPath string, updateDuration time.Duration, ignores []string, worker int) error {
 	// ワーカー
-	q := make(chan *copyFileArg, worker)
-	wg := &sync.WaitGroup{}
-	for i := 0; i < worker; i++ {
-		wg.Add(1)
-		go copyFileWorker(q, wg)
-	}
-	err := copyImpl(q, srcStorage, destStorage, srcPath, destDirPath, updateDuration, ignores, nil, nil)
+	aggregateQ := make(chan *copyFileArg, worker)
+	aggregateWG := &sync.WaitGroup{}
+	copyQ := make(chan *copyFileArg, worker)
+	copyWG := &sync.WaitGroup{}
+	copyFileArgs := []*copyFileArg{}
+
+	// copyFileArgを集める
+	aggregateWG.Add(1)
+	go func() {
+		defer aggregateWG.Done()
+		for arg := range aggregateQ {
+			copyFileArgs = append(copyFileArgs, arg)
+		}
+	}()
+	err := aggregateCopyFileArgs(aggregateQ, srcStorage, destStorage, srcPath, destDirPath, updateDuration, ignores, nil, nil)
 	if err != nil {
 		err = fmt.Errorf("error at cp: %w", err)
 		return err
 	}
-	close(q)
-	wg.Wait()
+	close(aggregateQ)
+	aggregateWG.Wait()
+
+	// 何件コピーするか表示する
+	fmt.Printf("%dつのファイルのコピーを開始します\n", len(copyFileArgs))
+
+	// copyする
+	for i := 0; i < worker; i++ {
+		copyWG.Add(1)
+		go func() {
+			defer copyWG.Done()
+			for arg := range copyQ {
+				err := copyFile(arg.srcStorage, arg.destStorage, arg.srcFilePath, arg.destDirPath)
+				if err != nil {
+					err = fmt.Errorf("error at copy file from %s:%s to %s:%s: %w", arg.srcStorage.Type(), arg.srcFilePath, arg.destStorage.Type(), arg.destDirPath, err)
+					log.Printf("%s\n", err)
+				}
+			}
+		}()
+	}
+	func() {
+		for _, arg := range copyFileArgs {
+			copyQ <- arg
+		}
+	}()
+	close(copyQ)
+	copyWG.Wait()
 	return nil
 }
 
 // destFileInfosは、移動先フォルダをListしたもの。
 // srcFileInfosは、移動元フォルダをListしたもの。
-func copyImpl(q chan *copyFileArg, srcStorage, destStorage hbg.Storage, srcPath, destDirPath string, updateDuration time.Duration, ignores []string, srcFileInfos []*hbg.FileInfo, destFileInfos []*hbg.FileInfo) error {
+func aggregateCopyFileArgs(q chan *copyFileArg, srcStorage, destStorage hbg.Storage, srcPath, destDirPath string, updateDuration time.Duration, ignores []string, srcFileInfos []*hbg.FileInfo, destFileInfos []*hbg.FileInfo) error {
 	// どちらもディレクトリの場合
 	var err error
 
@@ -257,7 +290,7 @@ Loop:
 			for _, file := range files {
 				if file.IsDir {
 					defer close(q)
-					err = copyImpl(q, srcStorage, destStorage, filepath.ToSlash(file.Path), destDirPath, updateDuration, ignores, nil, nil)
+					err = aggregateCopyFileArgs(q, srcStorage, destStorage, filepath.ToSlash(file.Path), destDirPath, updateDuration, ignores, nil, nil)
 					if err != nil {
 						return err
 					}
@@ -269,7 +302,7 @@ Loop:
 						}
 					}
 
-					err = copyImpl(q, srcStorage, destStorage, filepath.ToSlash(file.Path), destDirPath, updateDuration, ignores, matchSrcFiles, destFileInfos)
+					err = aggregateCopyFileArgs(q, srcStorage, destStorage, filepath.ToSlash(file.Path), destDirPath, updateDuration, ignores, matchSrcFiles, destFileInfos)
 					if err != nil {
 						return err
 					}
@@ -306,21 +339,6 @@ Loop:
 		}
 	}
 	return nil
-}
-
-func copyFileWorker(q <-chan *copyFileArg, wg *sync.WaitGroup) {
-	defer wg.Done()
-	for {
-		arg, ok := <-q
-		if !ok {
-			return
-		}
-		err := copyFile(arg.srcStorage, arg.destStorage, arg.srcFilePath, arg.destDirPath)
-		if err != nil {
-			err = fmt.Errorf("error at copy file from %s:%s to %s:%s: %w", arg.srcStorage.Type(), arg.srcFilePath, arg.destStorage.Type(), arg.destDirPath, err)
-			log.Printf("%s\n", err)
-		}
-	}
 }
 
 type copyFileArg struct {

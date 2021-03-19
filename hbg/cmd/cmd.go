@@ -178,7 +178,7 @@ func loadConfig() error {
 	// 読み込んでcfgを作成する
 	existConfigPath := false
 	for _, configPath := range configPaths {
-		if _, err := os.Stat(configPath); err == nil {
+		if _, err := os.Stat(filepath.Join(configPath, configName+configExt)); err == nil {
 			existConfigPath = true
 			break
 		}

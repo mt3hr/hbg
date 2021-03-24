@@ -115,26 +115,14 @@ func getConfigName() string {
 func getConfigExt() string {
 	return ".yaml"
 }
-func createDefaultConfig() (*viper.Viper, error) {
-	v := viper.New()
-
-	v.Set("dropbox", []struct {
-		Name string
-	}{{
-		Name: "dropbox",
-	}})
-	v.Set("local", struct {
-		Name string
-	}{
-		Name: "local",
-	})
-	v.Set("googledrive", []struct {
-		Name string
-	}{{
-		Name: "googledrive",
-	}})
-
-	return v, nil
+func createDefaultConfigYAML() string {
+	return `Dropbox:
+- name: dropbox
+# Googledrive:
+# - name: googledrive
+Local:
+  name: local
+`
 }
 
 func loadConfig() error {
@@ -142,7 +130,6 @@ func loadConfig() error {
 	config := getConfig()
 	configName := getConfigName()
 	configExt := getConfigExt()
-	createDefaultConfig := createDefaultConfig
 
 	v := viper.New()
 	configPaths := []string{}
@@ -159,11 +146,11 @@ func loadConfig() error {
 			log.Printf(err.Error())
 		} else {
 			v.AddConfigPath(filepath.Dir(exe))
-			configPaths = append(configPaths, filepath.Dir(exe))
+			configPaths = append(configPaths, filepath.Join(filepath.Dir(exe), configName+configExt))
 		}
 
 		v.AddConfigPath(".")
-		configPaths = append(configPaths, ".")
+		configPaths = append(configPaths, filepath.Join(".", configName+configExt))
 
 		home, err := homedir.Dir()
 		if err != nil {
@@ -171,14 +158,14 @@ func loadConfig() error {
 			log.Printf(err.Error())
 		} else {
 			v.AddConfigPath(home)
-			configPaths = append(configPaths, home)
+			configPaths = append(configPaths, filepath.Join(home, configName+configExt))
 		}
 	}
 
 	// 読み込んでcfgを作成する
 	existConfigPath := false
 	for _, configPath := range configPaths {
-		if _, err := os.Stat(filepath.Join(configPath, configName+configExt)); err == nil {
+		if _, err := os.Stat(configPath); err == nil {
 			existConfigPath = true
 			break
 		}
@@ -198,19 +185,13 @@ func loadConfig() error {
 				configDir = home
 			}
 
-			v, err = createDefaultConfig()
-			if err != nil {
-				err = fmt.Errorf("error at create defaul config: %w", err)
-				return err
-			}
-
 			configFileName := filepath.Join(configDir, configName+configExt)
-			v.SetConfigFile(configFileName)
-			err = v.WriteConfig()
+			err = os.WriteFile(configFileName, []byte(createDefaultConfigYAML()), os.ModePerm)
 			if err != nil {
-				err = fmt.Errorf("error at write config to %s: %w", configFileName, err)
+				err = fmt.Errorf("error at write file to %s: %w", configFileName, err)
 				return err
 			}
+			v.SetConfigFile(configFileName)
 		} else {
 			err := fmt.Errorf("コンフィグファイルが見つかりませんでした。")
 			return err

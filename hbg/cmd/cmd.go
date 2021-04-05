@@ -24,7 +24,8 @@ func Execute() {
 // Config .
 // コンフィグファイルのデータモデル
 type Config struct {
-	Dropbox []struct {
+	DefaultWorker int
+	Dropbox       []struct {
 		Name  string
 		Token string
 	}
@@ -116,7 +117,8 @@ func getConfigExt() string {
 	return ".yaml"
 }
 func createDefaultConfigYAML() string {
-	return `Dropbox:
+	return `DefaultWorker: 2
+Dropbox:
 - name: dropbox
 # Googledrive:
 # - name: googledrive

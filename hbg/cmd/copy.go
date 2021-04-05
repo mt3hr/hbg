@@ -45,11 +45,6 @@ dropbox:
 - name: dropbox
 googledrive: 
 - name: googledrive
-ftp: 
-- name: ftp
-  address: localhost
-  username: anonymous
-  password: password
 `,
 		PreRun: func(_ *cobra.Command, args []string) {
 			srcInfo, destInfo := args[0], args[1]
@@ -70,6 +65,10 @@ ftp:
 			}
 			copyOpt.destStorage = destSplit[0]
 			copyOpt.destDirPath = destSplit[1]
+
+			if copyOpt.worker == 0 {
+				copyOpt.worker = config.DefaultWorker
+			}
 		},
 	}
 
@@ -89,7 +88,7 @@ func init() {
 	copyFs := copyCmd.Flags()
 	copyFs.StringArrayVarP(&copyOpt.ignore, "ignore", "i", []string{".nomedia", "desktop.ini", "thumbnails", ".thumbnails", "Thumbs.db"}, "無視するファイル")
 	copyFs.DurationVar(&copyOpt.updateDuration, "update_duration", time.Duration(time.Second), "更新されたとみなす期間")
-	copyFs.IntVarP(&copyOpt.worker, "worker", "w", 1, "同時処理数")
+	copyFs.IntVarP(&copyOpt.worker, "worker", "w", 0, "同時処理数。0だとconfigファイルの値で動きます。")
 }
 
 func runCopy(_ *cobra.Command, _ []string) {

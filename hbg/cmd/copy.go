@@ -86,7 +86,7 @@ googledrive:
 
 func init() {
 	copyFs := copyCmd.Flags()
-	copyFs.StringArrayVarP(&copyOpt.ignore, "ignore", "i", []string{".nomedia", "desktop.ini", "thumbnails", ".thumbnails", "Thumbs.db"}, "無視するファイル")
+	copyFs.StringArrayVarP(&copyOpt.ignore, "ignore", "i", []string{".nomedia", "desktop.ini", "thumbnails", ".thumbnails", "Thumbs.db", ".DS_Store", ".localized"}, "無視するファイル")
 	copyFs.DurationVar(&copyOpt.updateDuration, "update_duration", time.Duration(time.Second), "更新されたとみなす期間")
 	copyFs.IntVarP(&copyOpt.worker, "worker", "w", 0, "同時処理数。0だとconfigファイルの値で動きます。")
 }

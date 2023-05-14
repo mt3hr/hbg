@@ -9,8 +9,8 @@ import (
 	"path/filepath"
 	"time"
 
-	dbxapi "github.com/dropbox/dropbox-sdk-go-unofficial/dropbox"
-	dbx "github.com/dropbox/dropbox-sdk-go-unofficial/dropbox/files"
+	dbxapi "github.com/dropbox/dropbox-sdk-go-unofficial/v6/dropbox"
+	dbx "github.com/dropbox/dropbox-sdk-go-unofficial/v6/dropbox/files"
 	"github.com/google/uuid"
 	"github.com/mitchellh/go-homedir"
 	"golang.org/x/oauth2"
@@ -24,8 +24,9 @@ var (
 // TimeToDropbox .
 // 時刻をDropboxの形式に丸めます。
 // utcの秒までの情報です。
-func TimeToDropbox(t time.Time) time.Time {
-	return t.In(time.UTC).Truncate(time.Second)
+func TimeToDropbox(t time.Time) *time.Time {
+	tp := t.In(time.UTC).Truncate(time.Second)
+	return &tp
 }
 
 // NewDropbox .
@@ -163,10 +164,10 @@ func (d *dropbox) Push(dirPath string, data *File) error {
 	}
 
 	// commitInfoを作る。timeはutcniにして秒で丸める
-	commitInfo := dbx.NewCommitInfo(path)
-	commitInfo.ClientModified = TimeToDropbox(data.LastMod)
-	commitInfo.Autorename = false
-	commitInfo.Mode = &dbx.WriteMode{Tagged: dbxapi.Tagged{Tag: dbx.WriteModeOverwrite}}
+	uploadArg := dbx.NewUploadArg(path)
+	uploadArg.ClientModified = TimeToDropbox(data.LastMod)
+	uploadArg.Autorename = false
+	uploadArg.Mode = &dbx.WriteMode{Tagged: dbxapi.Tagged{Tag: dbx.WriteModeOverwrite}}
 
 	// 呼び出されるたびに次のチャンクをReaderとして返すやつ
 	getNextChunk := func() io.Reader {
@@ -180,7 +181,7 @@ func (d *dropbox) Push(dirPath string, data *File) error {
 	client := d.Client
 	var err error
 	if uint64(data.Size) < dropboxChunkSize {
-		_, err = client.Upload(commitInfo, getNextChunk())
+		_, err = client.Upload(uploadArg, getNextChunk())
 		if err != nil {
 			err = fmt.Errorf("error at upload %s at dropbox %s: %w", path, d.Name(), err)
 			return err
@@ -211,7 +212,7 @@ func (d *dropbox) Push(dirPath string, data *File) error {
 
 	// 最後のチャンク
 	c := dbx.NewUploadSessionCursor(res.SessionId, uploaded)
-	farg := dbx.NewUploadSessionFinishArg(c, commitInfo)
+	farg := dbx.NewUploadSessionFinishArg(c, &uploadArg.CommitInfo)
 	_, err = client.UploadSessionFinish(farg, getNextChunk())
 	if err != nil {
 		err = fmt.Errorf("error at upload session finish %s at dropbox %s: %w", path, d.Name(), err)

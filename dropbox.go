@@ -163,9 +163,14 @@ func (d *dropbox) Push(dirPath string, data *File) error {
 		return fmt.Errorf("%dbyte データのサイズが大きすぎます。%dbyte以内におさめてください。", data.Size, dropboxMaxSize)
 	}
 
-	// commitInfoを作る。timeはutcniにして秒で丸める
+	// commitInfoを作る。timeはutcにして秒で丸める
 	uploadArg := dbx.NewUploadArg(path)
 	uploadArg.ClientModified = TimeToDropbox(data.LastMod)
+	uploadArg.Autorename = false
+	uploadArg.Mode = &dbx.WriteMode{Tagged: dbxapi.Tagged{Tag: dbx.WriteModeOverwrite}}
+	// uploadArgを作る。timeはutcにして秒で丸める
+	lastMod := TimeToDropbox(data.LastMod)
+	uploadArg.ClientModified = lastMod
 	uploadArg.Autorename = false
 	uploadArg.Mode = &dbx.WriteMode{Tagged: dbxapi.Tagged{Tag: dbx.WriteModeOverwrite}}
 
@@ -198,8 +203,9 @@ func (d *dropbox) Push(dirPath string, data *File) error {
 	// 最初、最後以外のチャンク
 	uploaded := uint64(dropboxChunkSize)
 	datasize := uint64(data.Size)
+	var c *dbx.UploadSessionCursor
 	for datasize-uploaded > dropboxChunkSize {
-		c := dbx.NewUploadSessionCursor(res.SessionId, uploaded)
+		c = dbx.NewUploadSessionCursor(res.SessionId, uploaded)
 		aarg := dbx.NewUploadSessionAppendArg(c)
 
 		err := client.UploadSessionAppendV2(aarg, getNextChunk())
@@ -211,7 +217,7 @@ func (d *dropbox) Push(dirPath string, data *File) error {
 	}
 
 	// 最後のチャンク
-	c := dbx.NewUploadSessionCursor(res.SessionId, uploaded)
+	c = dbx.NewUploadSessionCursor(res.SessionId, uploaded)
 	farg := dbx.NewUploadSessionFinishArg(c, &uploadArg.CommitInfo)
 	_, err = client.UploadSessionFinish(farg, getNextChunk())
 	if err != nil {

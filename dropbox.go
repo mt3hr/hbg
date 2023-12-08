@@ -9,8 +9,8 @@ import (
 	"path/filepath"
 	"time"
 
-	dbxapi "github.com/dropbox/dropbox-sdk-go-unofficial/dropbox"
-	dbx "github.com/dropbox/dropbox-sdk-go-unofficial/dropbox/files"
+	dbxapi "github.com/dropbox/dropbox-sdk-go-unofficial/v6/dropbox"
+	dbx "github.com/dropbox/dropbox-sdk-go-unofficial/v6/dropbox/files"
 	"github.com/google/uuid"
 	"github.com/mitchellh/go-homedir"
 	"golang.org/x/oauth2"
@@ -162,9 +162,15 @@ func (d *dropbox) Push(dirPath string, data *File) error {
 		return fmt.Errorf("%dbyte データのサイズが大きすぎます。%dbyte以内におさめてください。", data.Size, dropboxMaxSize)
 	}
 
-	// commitInfoを作る。timeはutcniにして秒で丸める
+	// uploadArgを作る。timeはutcniにして秒で丸める
+	fmt.Printf("path = %+v\n", path)
+	uploadArg := dbx.NewUploadArg(path)
 	commitInfo := dbx.NewCommitInfo(path)
-	commitInfo.ClientModified = TimeToDropbox(data.LastMod)
+	lastMod := TimeToDropbox(data.LastMod)
+	uploadArg.ClientModified = &lastMod
+	uploadArg.Autorename = false
+	uploadArg.Mode = &dbx.WriteMode{Tagged: dbxapi.Tagged{Tag: dbx.WriteModeOverwrite}}
+	commitInfo.ClientModified = &lastMod
 	commitInfo.Autorename = false
 	commitInfo.Mode = &dbx.WriteMode{Tagged: dbxapi.Tagged{Tag: dbx.WriteModeOverwrite}}
 
@@ -180,7 +186,7 @@ func (d *dropbox) Push(dirPath string, data *File) error {
 	client := d.Client
 	var err error
 	if uint64(data.Size) < dropboxChunkSize {
-		_, err = client.Upload(commitInfo, getNextChunk())
+		_, err = client.Upload(uploadArg, getNextChunk())
 		if err != nil {
 			err = fmt.Errorf("error at upload %s at dropbox %s: %w", path, d.Name(), err)
 			return err
@@ -197,8 +203,9 @@ func (d *dropbox) Push(dirPath string, data *File) error {
 	// 最初、最後以外のチャンク
 	uploaded := uint64(dropboxChunkSize)
 	datasize := uint64(data.Size)
+	var c *dbx.UploadSessionCursor
 	for datasize-uploaded > dropboxChunkSize {
-		c := dbx.NewUploadSessionCursor(res.SessionId, uploaded)
+		c = dbx.NewUploadSessionCursor(res.SessionId, uploaded)
 		aarg := dbx.NewUploadSessionAppendArg(c)
 
 		err := client.UploadSessionAppendV2(aarg, getNextChunk())
@@ -210,7 +217,7 @@ func (d *dropbox) Push(dirPath string, data *File) error {
 	}
 
 	// 最後のチャンク
-	c := dbx.NewUploadSessionCursor(res.SessionId, uploaded)
+	c = dbx.NewUploadSessionCursor(res.SessionId, uploaded)
 	farg := dbx.NewUploadSessionFinishArg(c, commitInfo)
 	_, err = client.UploadSessionFinish(farg, getNextChunk())
 	if err != nil {

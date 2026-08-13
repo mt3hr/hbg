@@ -18,6 +18,7 @@ import (
 // 本質的に秘密にできません。そのため hbg では次の方針を取ります。
 //
 //   - Dropbox は PKCE を使うのでシークレット自体が不要です（アプリキーのみ）。
+//   - Microsoft も「パブリッククライアント」として登録すればシークレットは不要です。
 //   - Google は installed app でもシークレットを要求するため、
 //     利用者自身の Google Cloud プロジェクトを使うことを既定とします。
 //
@@ -30,6 +31,10 @@ var (
 	GoogleClientID = ""
 	// GoogleClientSecret は Google OAuth クライアントのシークレットです。
 	GoogleClientSecret = ""
+
+	// MicrosoftClientID は Microsoft のアプリ（クライアント）IDです。
+	// パブリッククライアントとして登録すればシークレットは不要です。
+	MicrosoftClientID = ""
 )
 
 // 環境変数名。
@@ -37,6 +42,7 @@ const (
 	EnvDropboxAppKey      = "HBG_DROPBOX_APP_KEY"
 	EnvGoogleClientID     = "HBG_GOOGLE_CLIENT_ID"
 	EnvGoogleClientSecret = "HBG_GOOGLE_CLIENT_SECRET"
+	EnvMicrosoftClientID  = "HBG_MICROSOFT_CLIENT_ID"
 )
 
 // ClientCredentials は OAuth クライアントの識別情報です。
@@ -132,4 +138,16 @@ func setupInstructions(storageType string) string {
   必要です。そのため hbg では利用者自身のプロジェクトを使います。`
 	}
 	return ""
+}
+
+// ResolveMicrosoft は Microsoft のアプリIDを解決します。
+//
+// パブリッククライアントとして登録し、PKCE を使うので
+// シークレットは不要です。
+func ResolveMicrosoft(fromConfig string) (ClientCredentials, error) {
+	id := firstNonEmpty(fromConfig, os.Getenv(EnvMicrosoftClientID), MicrosoftClientID)
+	if id == "" {
+		return ClientCredentials{}, missingCredentialsError("onedrive")
+	}
+	return ClientCredentials{ClientID: id}, nil
 }

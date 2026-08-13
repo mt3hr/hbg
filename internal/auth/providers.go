@@ -78,3 +78,42 @@ func GoogleAuthCodeOptions() []oauth2.AuthCodeOption {
 		oauth2.ApprovalForce,
 	}
 }
+
+// MicrosoftScopes は hbg が必要とする Microsoft の権限です。
+//
+// offline_access がないとリフレッシュトークンが得られず、
+// 1時間ほどで再認証が必要になります。
+var MicrosoftScopes = []string{
+	"offline_access",
+	"Files.ReadWrite.All",
+	"User.Read",
+}
+
+// microsoftEndpoint は Microsoft の OAuth2 エンドポイントです。
+//
+// consumers（個人用）と organizations（職場・学校）の両方を受け付ける
+// common を使います。
+var microsoftEndpoint = oauth2.Endpoint{
+	AuthURL:  "https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
+	TokenURL: "https://login.microsoftonline.com/common/oauth2/v2.0/token",
+}
+
+// MicrosoftOAuth2Config は Microsoft 用の oauth2.Config を返します。
+//
+// テナントを指定すると、その組織の利用者だけに絞れます。
+func MicrosoftOAuth2Config(creds ClientCredentials, tenant string) *oauth2.Config {
+	endpoint := microsoftEndpoint
+	if tenant != "" {
+		endpoint = oauth2.Endpoint{
+			AuthURL:  "https://login.microsoftonline.com/" + tenant + "/oauth2/v2.0/authorize",
+			TokenURL: "https://login.microsoftonline.com/" + tenant + "/oauth2/v2.0/token",
+		}
+	}
+
+	return &oauth2.Config{
+		ClientID: creds.ClientID,
+		// パブリッククライアントなのでシークレットは持ちません。
+		Endpoint: endpoint,
+		Scopes:   MicrosoftScopes,
+	}
+}

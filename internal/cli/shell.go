@@ -9,11 +9,12 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/chzyer/readline"
 	"github.com/mt3hr/hbg/internal/hbghome"
+	"github.com/mt3hr/hbg/progress"
 	hbgstorage "github.com/mt3hr/hbg/storage"
+	"github.com/mt3hr/hbg/transfer"
 	"github.com/spf13/cobra"
 )
 
@@ -478,12 +479,22 @@ var (
 
 						// もとは戻り値を捨てており、コピーに失敗しても
 						// シェル上には何も表示されなかった。
-						result, err := copyTree(ctx, srcStorage, destStorage, srcPath, destPath, time.Second, ignores, 1)
+						result, err := transfer.Run(ctx, transfer.Options{
+							Src:      srcStorage,
+							Dst:      destStorage,
+							SrcPath:  srcPath,
+							DstDir:   destPath,
+							Workers:  1,
+							Compare:  transfer.DefaultComparePolicy(),
+							Ignore:   ignores,
+							Retry:    transfer.DefaultRetryPolicy(),
+							Reporter: progress.NewPlain(progress.PlainOptions{}),
+						})
 						if err != nil {
 							fmt.Println(err.Error())
 							continue Loop
 						}
-						result.writeSummary(os.Stdout)
+						writeSummary(os.Stdout, result)
 					}
 				}
 			}

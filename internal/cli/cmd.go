@@ -1,9 +1,12 @@
 package cli
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/mt3hr/hbg"
 	"github.com/mt3hr/hbg/backend"
@@ -26,6 +29,9 @@ const (
 	ExitUsage = 2
 	// ExitTransferFailed は一部のファイルの転送に失敗したことを表します。
 	ExitTransferFailed = 3
+	// ExitInterrupted は利用者が中断したことを表します。
+	// Unix の慣習に合わせ、SIGINT による終了は 130 とします。
+	ExitInterrupted = 130
 )
 
 // exitError は、特定の終了コードで終了したいことを表すエラーです。
@@ -51,7 +57,26 @@ func withExitCode(code int, err error) error {
 func Execute() int {
 	defer closeLogging()
 
-	err := rootCmd.Execute()
+	// Ctrl-C で安全に中断できるようにする。
+	//
+	// 以前は context を扱っていなかったため、割り込みは書き込みの途中で
+	// プロセスを殺すしかなく、中身の欠けたファイルが残っていた。
+	// 取り消しを伝えることで、書き込み中の一時ファイルが片付けられる。
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	// 2度目の割り込みは即座に終了する。
+	// 後始末に時間がかかっている場合に待たされないようにするため。
+	go func() {
+		ch := make(chan os.Signal, 2)
+		signal.Notify(ch, os.Interrupt)
+		<-ch
+		<-ch
+		fmt.Fprintln(os.Stderr, "\nhbg: 強制終了します")
+		os.Exit(ExitInterrupted)
+	}()
+
+	err := rootCmd.ExecuteContext(ctx)
 	if err == nil {
 		return ExitOK
 	}

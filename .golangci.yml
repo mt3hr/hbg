@@ -49,30 +49,18 @@ linters:
       # 以下は計画の各フェーズで作り直す予定のファイル。
       # 作り直しが済んだら、対応する行を削除すること。
 
-      # P7 で全面書き直し（パス解決・ページネーション・認証）。
-      # ineffassign は List/getFileByPath がエラーを握り潰して
-      # 空リストを正常返しする不具合を指している。bodyclose は Download の応答。
+      # P7 で全面書き直し（Files.Get の応答は File.Data として
+      # 呼び出し側に渡すため bodyclose は誤検出）
       - path: googleDrive\.go
-        linters:
-          [
-            errcheck,
-            govet,
-            staticcheck,
-            unparam,
-            errorlint,
-            noctx,
-            ineffassign,
-            bodyclose,
-          ]
+        linters: [errcheck, unparam, errorlint, noctx, bodyclose]
 
       # P7 で filetransfer ベースに刷新
       - path: dropbox\.go
         linters: [errcheck, govet, unparam, errorlint, noctx]
 
-      # P4 で transfer/ パッケージへ移植。
-      # ineffassign は glob のエラーチェックが死にコードになっている不具合（P1で修正）。
+      # P4 で transfer/ パッケージへ移植
       - path: internal/cli/copy\.go
-        linters: [govet, errcheck, predeclared, unparam, ineffassign]
+        linters: [errcheck, unparam]
 
       # P9 で書き直し（readline 差し替え・ドライブレター判定のヘルパ化）
       - path: internal/cli/shell\.go
@@ -80,7 +68,7 @@ linters:
 
       # P2 で $HOME/hbg/ 集約とともに書き直し
       - path: internal/cli/cmd\.go
-        linters: [errcheck, govet, unparam]
+        linters: [errcheck, unparam]
 
       # P3 で新インターフェースへ移行
       - path: localfilesystem\.go

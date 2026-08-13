@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -11,14 +12,59 @@ import (
 	"github.com/spf13/viper"
 )
 
-// Execute .
-// コマンドを実行します。main関数から呼び出されます。
-func Execute() {
-	err := rootCmd.Execute()
-	if err != nil {
-		log.Fatal(err)
-	}
+// プロセスの終了コード。
+//
+// 以前は転送に失敗しても常に 0 で終了していたため、
+// スクリプトやジョブから成否を判定できなかった。
+const (
+	// ExitOK は全件成功したことを表します。0件だった場合も成功です。
+	ExitOK = 0
+	// ExitFailure は設定の読み込み失敗など、実行そのものの失敗を表します。
+	ExitFailure = 1
+	// ExitUsage は引数や設定の記述が誤っていることを表します。
+	ExitUsage = 2
+	// ExitTransferFailed は一部のファイルの転送に失敗したことを表します。
+	ExitTransferFailed = 3
+)
+
+// exitError は、特定の終了コードで終了したいことを表すエラーです。
+type exitError struct {
+	code int
+	err  error
 }
+
+func (e *exitError) Error() string { return e.err.Error() }
+func (e *exitError) Unwrap() error { return e.err }
+
+// withExitCode はエラーに終了コードを結びつけます。
+func withExitCode(code int, err error) error {
+	if err == nil {
+		return nil
+	}
+	return &exitError{code: code, err: err}
+}
+
+// Execute .
+// コマンドを実行し、プロセスの終了コードを返します。
+// main関数はこの戻り値で os.Exit します。
+func Execute() int {
+	err := rootCmd.Execute()
+	if err == nil {
+		return ExitOK
+	}
+
+	fmt.Fprintf(os.Stderr, "hbg: %v\n", err)
+
+	var ee *exitError
+	if errors.As(err, &ee) {
+		return ee.code
+	}
+	return ExitFailure
+}
+
+// defaultWorker は、設定ファイルにも -w にも同時処理数の指定がない場合に使う値です。
+// createDefaultConfigYAML が生成する設定と同じ値にしています。
+const defaultWorker = 2
 
 // Config .
 // コンフィグファイルのデータモデル
@@ -50,15 +96,18 @@ var (
 
 ストレージは設定ファイル hbg_config.yaml で名前を付けて定義し、
 コマンドでは "名前:パス" の形式で指定します。`,
-		SilenceUsage: true,
-		PersistentPreRun: func(_ *cobra.Command, _ []string) {
-			err := loadConfig()
-			if err != nil {
-				err = fmt.Errorf("error at load config file: %w", err)
-				log.Fatal(err)
+		SilenceUsage:  true,
+		SilenceErrors: true, // エラーの表示は Execute で行う
+		PersistentPreRunE: func(_ *cobra.Command, _ []string) error {
+			if err := loadConfig(); err != nil {
+				return withExitCode(ExitUsage, fmt.Errorf("error at load config file: %w", err))
 			}
+			return nil
 		},
-		Run: func(_ *cobra.Command, _ []string) {},
+		Run: func(cmd *cobra.Command, _ []string) {
+			// サブコマンドなしで実行されたらヘルプを出す
+			_ = cmd.Help()
+		},
 	}
 
 	rootOpt = &struct {
@@ -141,7 +190,8 @@ Local:
 
 func loadConfig() error {
 	configOpt := getConfigFile()
-	config := getConfig()
+	// パッケージ変数の config を隠さないよう別名にする。
+	cfg := getConfig()
 	configName := getConfigName()
 	configExt := getConfigExt()
 
@@ -218,7 +268,7 @@ func loadConfig() error {
 		return err
 	}
 
-	err = v.Unmarshal(config)
+	err = v.Unmarshal(cfg)
 	if err != nil {
 		err = fmt.Errorf("error at unmarshal config file: %w", err)
 		return err

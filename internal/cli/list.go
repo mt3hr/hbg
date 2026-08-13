@@ -2,7 +2,6 @@ package cli
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"sort"
 	"strconv"
@@ -17,20 +16,20 @@ import (
 var (
 	listCmd = &cobra.Command{
 		Aliases: []string{"ls"},
-		Run:     runList,
+		RunE:    runList,
 		Args:    cobra.ExactArgs(1),
 		Use:     "list storage:path",
 		Short:   "ストレージのファイルを一覧表示する",
-		PreRun: func(_ *cobra.Command, args []string) {
+		PreRunE: func(_ *cobra.Command, args []string) error {
 			targetInfo := args[0]
 			targetSplit := strings.SplitN(targetInfo, ":", 2)
 
 			if len(targetSplit) < 2 {
-				err := fmt.Errorf("pathの記述が変です")
-				log.Fatal(err)
+				return withExitCode(ExitUsage, fmt.Errorf("pathの記述が変です: %q（storage:path の形式で指定してください）", targetInfo))
 			}
 			listOpt.targetStorage = targetSplit[0]
 			listOpt.targetPath = targetSplit[1]
+			return nil
 		},
 	}
 	listOpt = &struct {
@@ -103,21 +102,16 @@ func formatSizeWithUnit(size, unit int64, suffix string) string {
 	return strconv.FormatInt(whole, 10) + "." + strconv.FormatInt(frac, 10) + suffix
 }
 
-func runList(_ *cobra.Command, _ []string) {
+func runList(_ *cobra.Command, _ []string) error {
 	storages, err := storageMapFromConfig(config)
 	if err != nil {
-		err = fmt.Errorf("load storage failed. %w", err)
-		log.Fatal(err)
+		return fmt.Errorf("load storage failed. %w", err)
 	}
 	storage, exist := storages[listOpt.targetStorage]
 	if !exist {
-		err = fmt.Errorf("not found storage '%s'. %w", listOpt.targetStorage, err)
-		log.Fatal(err)
+		return withExitCode(ExitUsage, fmt.Errorf("not found storage '%s'", listOpt.targetStorage))
 	}
-	err = list(storage, listOpt.targetPath, listOpt.long, listOpt.humanReadable)
-	if err != nil {
-		log.Fatal(err)
-	}
+	return list(storage, listOpt.targetPath, listOpt.long, listOpt.humanReadable)
 }
 
 func list(storage hbg.Storage, path string, long, humanReadable bool) error {
@@ -168,9 +162,8 @@ func list(storage hbg.Storage, path string, long, humanReadable bool) error {
 		}
 		fmt.Fprintf(w, "\n")
 	}
-	err = w.Flush()
-	if err != nil {
-		log.Fatal(err)
+	if err := w.Flush(); err != nil {
+		return fmt.Errorf("error at write list output. %w", err)
 	}
 	return nil
 }

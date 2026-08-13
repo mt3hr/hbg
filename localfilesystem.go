@@ -94,13 +94,14 @@ func (l *localFileSystem) Push(dirPath string, data *File) error {
 	}
 
 	path := filepath.Join(dirPath, data.Name)
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, os.ModePerm)
+	// パーミッションは umask が適用される。
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0666)
 	if err != nil {
-		err = fmt.Errorf("filed to open file %s: %w", path, err)
+		err = fmt.Errorf("failed to open file %s: %w", path, err)
 		return err
 	}
 	defer file.Close()
-	defer data.Data.Close()
+	// data.Data はここでは閉じない。所有権は呼び出し側にある（Storage の Push を参照）。
 
 	_, err = io.Copy(file, data.Data)
 	if err != nil {

@@ -189,9 +189,9 @@ func (d *dropbox) Push(dirPath string, data *File) error {
 		chunk := io.LimitReader(data.Data, int64(dropboxChunkSize))
 		return chunk
 	}
-	defer data.Data.Close()
+	// data.Data はここでは閉じない。所有権は呼び出し側にある（Storage の Push を参照）。
 
-	// ChunkSizeが150MNB以上と以下とで処理を分ける。
+	// ChunkSizeが150MB以上と以下とで処理を分ける。
 	// 150MB以上だと分割する必要があるので
 	client := d.Client
 	var err error

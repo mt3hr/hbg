@@ -13,6 +13,7 @@ import (
 
 	"github.com/chzyer/readline"
 	"github.com/mt3hr/hbg"
+	"github.com/mt3hr/hbg/internal/hbghome"
 	"github.com/spf13/cobra"
 )
 
@@ -45,11 +46,20 @@ var (
 					fmt.Errorf("local ストレージが設定されていないため shell を開始できません"))
 			}
 
+			// 履歴は一時ディレクトリではなく $HOME/hbg 配下に置く。
+			historyFile, err := hbghome.ShellHistoryFile()
+			if err != nil {
+				return err
+			}
+			if err := hbghome.EnsureParentDir(historyFile); err != nil {
+				return err
+			}
+
 			// readline のインスタンスはループの外で1度だけ作る。
 			// もとはループのたびに生成して defer で閉じており、
 			// 履歴ファイルのハンドルがプロセスの生存期間ぶん積み上がっていた。
 			l, err := readline.NewEx(&readline.Config{
-				HistoryFile:     filepath.Join(os.TempDir(), "hbg_shell_history"),
+				HistoryFile:     historyFile,
 				InterruptPrompt: "^C",
 				EOFPrompt:       "exit",
 			})

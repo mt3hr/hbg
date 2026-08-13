@@ -1,19 +1,14 @@
 package cli
 
 import (
-	"context"
 	"fmt"
-	"io"
-	"log"
 	"os"
-	"path/filepath"
 	"strings"
-	"sync"
 	"time"
 
-	glb "github.com/gobwas/glob"
 	"github.com/mt3hr/hbg/internal/hbglog"
-	"github.com/mt3hr/hbg/storage"
+	"github.com/mt3hr/hbg/progress"
+	"github.com/mt3hr/hbg/transfer"
 	"github.com/spf13/cobra"
 )
 
@@ -31,16 +26,21 @@ var (
 ` + supportedStorageTypesHelp() + `
 ストレージは設定ファイルで名前を付けて定義します。
 同じ種別に別々の名前を与えると、複数のアカウントを使い分けられます。
-クラウドは初回に hbg auth login <名前> で認証してください。`,
+クラウドは初回に hbg auth login <名前> で認証してください。
+
+転送に失敗した場合は、--retry で同じファイルを試し直し、
+それでも残ったものを --retry-pass でまとめて試し直せます。`,
 		Example: `使用例
 hbg copy local:C:/hoge/test.txt dropbox:/hbg
 hbg copy dropbox:/hbg/test.txt local:/home/user/documents
 hbg copy -w 10 local:C:/hoge local:C:/fuga
+hbg copy --dry-run local:C:/hoge dropbox:/hbg
+hbg copy --retry 3 --retry-wait 5s --retry-pass 2 local:C:/hoge dropbox:/hbg
 `,
 		PreRunE: func(_ *cobra.Command, args []string) error {
 			srcInfo, destInfo := args[0], args[1]
 
-			// コロンで区切って、前がstorageタイプ、後がpath
+			// コロンで区切って、前がstorageの名前、後がpath
 			srcSplit := strings.SplitN(srcInfo, ":", 2)
 			if len(srcSplit) < 2 {
 				return withExitCode(ExitUsage, fmt.Errorf("srcpathの記述が変です: %q（storage:path の形式で指定してください）", srcInfo))
@@ -76,11 +76,21 @@ hbg copy -w 10 local:C:/hoge local:C:/fuga
 		worker         int
 		updateDuration time.Duration
 		ignore         []string
+
+		retry         int
+		retryWait     time.Duration
+		retryBackoff  bool
+		retryPass     int
+		retryPassWait time.Duration
+
+		tps       float64
+		bwLimit   string
+		dryRun    bool
+		maxErrors int
 	}{}
 )
 
 // defaultIgnores は既定で無視するファイル名です。
-// CLI の --ignore の既定値であり、シェルの cp でも使われます。
 var defaultIgnores = []string{
 	".nomedia",
 	"desktop.ini",
@@ -92,10 +102,21 @@ var defaultIgnores = []string{
 }
 
 func init() {
-	copyFs := copyCmd.Flags()
-	copyFs.StringArrayVarP(&copyOpt.ignore, "ignore", "i", defaultIgnores, "無視するファイル")
-	copyFs.DurationVar(&copyOpt.updateDuration, "update_duration", time.Second, "更新されたとみなす期間")
-	copyFs.IntVarP(&copyOpt.worker, "worker", "w", 0, "同時処理数。0だとconfigファイルの値で動きます。")
+	fs := copyCmd.Flags()
+	fs.StringArrayVarP(&copyOpt.ignore, "ignore", "i", defaultIgnores, "無視するファイル")
+	fs.DurationVar(&copyOpt.updateDuration, "update_duration", time.Second, "更新されたとみなす期間")
+	fs.IntVarP(&copyOpt.worker, "worker", "w", 0, "同時処理数。0だとconfigファイルの値で動きます。")
+
+	fs.IntVar(&copyOpt.retry, "retry", 3, "1ファイルの転送に失敗したときの再試行回数（0で無効）")
+	fs.DurationVar(&copyOpt.retryWait, "retry-wait", 5*time.Second, "再試行までの待ち時間")
+	fs.BoolVar(&copyOpt.retryBackoff, "retry-backoff", false, "再試行の待ち時間を試行ごとに伸ばす")
+	fs.IntVar(&copyOpt.retryPass, "retry-pass", 0, "失敗が残っていたときに全体をやり直す回数（0で無効）")
+	fs.DurationVar(&copyOpt.retryPassWait, "retry-pass-wait", time.Minute, "全体をやり直すまでの待ち時間")
+
+	fs.Float64Var(&copyOpt.tps, "tps", 0, "1秒あたりのAPI呼び出し回数の上限（0で無制限）")
+	fs.StringVar(&copyOpt.bwLimit, "bwlimit", "", "転送速度の上限（例: 10M, 512K）")
+	fs.BoolVar(&copyOpt.dryRun, "dry-run", false, "実際には転送せず、何が転送されるかだけを表示する")
+	fs.IntVar(&copyOpt.maxErrors, "max-errors", 0, "この件数を超えて失敗したら中断する（0で無制限）")
 }
 
 func runCopy(cmd *cobra.Command, _ []string) error {
@@ -118,12 +139,55 @@ func runCopy(cmd *cobra.Command, _ []string) error {
 		return withExitCode(ExitUsage, err)
 	}
 
-	result, err := copyTree(ctx, srcStorage, destStorage, copyOpt.srcPath, copyOpt.destDirPath, copyOpt.updateDuration, copyOpt.ignore, copyOpt.worker)
+	bwLimit, err := parseByteSize(copyOpt.bwLimit)
 	if err != nil {
-		return fmt.Errorf("error at copy file from %s:%s to %s:%s: %w", srcStorage.Type(), copyOpt.srcPath, destStorage.Type(), copyOpt.destDirPath, err)
+		return withExitCode(ExitUsage, fmt.Errorf("--bwlimit の指定が不正です: %w", err))
 	}
 
-	result.writeSummary(os.Stdout)
+	reporter := newReporter()
+	defer reporter.Close()
+
+	opts := transfer.Options{
+		Src:     srcStorage,
+		Dst:     destStorage,
+		SrcPath: copyOpt.srcPath,
+		DstDir:  copyOpt.destDirPath,
+		Workers: copyOpt.worker,
+		Compare: transfer.ComparePolicy{ModifyWindow: copyOpt.updateDuration},
+		Ignore:  copyOpt.ignore,
+		Retry: transfer.RetryPolicy{
+			MaxAttempts: copyOpt.retry + 1, // 初回 + 再試行回数
+			Wait:        copyOpt.retryWait,
+			Backoff:     copyOpt.retryBackoff,
+			MaxWait:     5 * time.Minute,
+		},
+		TPS:            copyOpt.tps,
+		BandwidthLimit: bwLimit,
+		DryRun:         copyOpt.dryRun,
+		MaxErrors:      copyOpt.maxErrors,
+		Reporter:       reporter,
+		OnTransfer:     logTransferEvent(srcStorage.Type(), destStorage.Type()),
+	}
+
+	pass := transfer.PassPolicy{
+		MaxPasses: copyOpt.retryPass + 1, // 初回 + やり直し回数
+		Wait:      copyOpt.retryPassWait,
+	}
+
+	result, err := transfer.RunWithPasses(ctx, opts, pass, &passReporter{r: reporter})
+	if result != nil {
+		hbglog.LogSummary(result.Transferred, result.Failed, result.Elapsed)
+		writeSummary(os.Stdout, result)
+	}
+
+	if err != nil {
+		if isCanceled(err) {
+			return withExitCode(ExitInterrupted, fmt.Errorf("中断しました"))
+		}
+		return fmt.Errorf("error at copy file from %s:%s to %s:%s: %w",
+			srcStorage.Type(), copyOpt.srcPath, destStorage.Type(), copyOpt.destDirPath, err)
+	}
+
 	if result.Failed > 0 {
 		return withExitCode(ExitTransferFailed,
 			fmt.Errorf("%d件のファイルのコピーに失敗しました", result.Failed))
@@ -131,353 +195,38 @@ func runCopy(cmd *cobra.Command, _ []string) error {
 	return nil
 }
 
-func glob(files []storage.FileInfo, pattern string) ([]storage.FileInfo, error) {
-	fileInfos := []storage.FileInfo{}
-
-	g := glb.MustCompile(filepath.ToSlash(pattern))
-	for _, file := range files {
-		if g.Match(filepath.ToSlash(file.Path)) {
-			fileInfos = append(fileInfos, file)
+// logTransferEvent は転送1件ごとにログを残す関数を返します。
+func logTransferEvent(srcType, dstType string) func(transfer.TransferEvent) {
+	return func(ev transfer.TransferEvent) {
+		rec := hbglog.TransferRecord{
+			SrcStorage: srcType,
+			SrcPath:    ev.SrcPath,
+			DstStorage: dstType,
+			DstPath:    ev.DstPath,
+			Bytes:      ev.Bytes,
+			Duration:   ev.Duration,
+			Result:     hbglog.ResultCopied,
+			Err:        ev.Err,
 		}
-	}
-	return fileInfos, nil
-}
-
-// サマリで表示する失敗の最大件数。
-// 大量に失敗した場合に画面を埋め尽くさないための上限です。
-const maxReportedErrors = 20
-
-// copyResult は転送の集計結果です。
-type copyResult struct {
-	Transferred int
-	Failed      int
-	Elapsed     time.Duration
-	// Errors は表示用に保持する失敗の詳細です。
-	// maxReportedErrors 件で打ち切られます。
-	Errors []error
-}
-
-// writeSummary は結果の要約を書き出します。
-func (r *copyResult) writeSummary(w io.Writer) {
-	fmt.Fprintf(w, "\nコピー完了: %d件成功, %d件失敗", r.Transferred, r.Failed)
-	if r.Elapsed > 0 {
-		fmt.Fprintf(w, " (%s)", r.Elapsed.Round(time.Millisecond))
-	}
-	fmt.Fprintln(w)
-	if len(r.Errors) == 0 {
-		return
-	}
-	fmt.Fprintf(w, "\n失敗した内容:\n")
-	for _, err := range r.Errors {
-		fmt.Fprintf(w, "  %v\n", err)
-	}
-	if r.Failed > len(r.Errors) {
-		fmt.Fprintf(w, "  ... ほか %d件\n", r.Failed-len(r.Errors))
+		switch {
+		case ev.Err != nil:
+			rec.Result = hbglog.ResultFailed
+		case ev.Skipped:
+			rec.Result = hbglog.ResultSkipped
+		}
+		hbglog.LogTransfer(rec)
 	}
 }
 
-// copyTree は srcPath 以下を destDirPath へコピーします。
-//
-// 個々のファイルの失敗は集計され、すべて処理し終えてから copyResult として
-// 返されます。以前はワーカー内のエラーを log で出すだけで握り潰しており、
-// 呼び出し側からは常に成功したように見えていました。
-//
-// なお、この関数はビルトインの copy を隠さないよう copyTree という名前です。
-func copyTree(ctx context.Context, srcStorage, destStorage storage.Storage, srcPath, destDirPath string, updateDuration time.Duration, ignores []string, worker int) (*copyResult, error) {
-	// worker が 0 だと容量0のチャネルとワーカー0個になり、
-	// 最初の送信で永久にブロックする。
-	if worker < 1 {
-		worker = 1
-	}
-
-	// コピー元を先に解決しておく。
-	// もとは一致するものがなくても「0件成功」として正常終了していたため、
-	// コピー元のパスを打ち間違えてもスクリプトからは成功に見えていた。
-	srcFileInfos, err := resolveSrcFileInfos(ctx, srcStorage, srcPath)
-	if err != nil {
-		return nil, err
-	}
-
-	copyFileArgs := []*copyFileArg{}
-
-	// コピー対象を集める
-	aggregateQ := make(chan *copyFileArg, worker)
-	aggregateWG := &sync.WaitGroup{}
-	aggregateWG.Add(1)
-	go func() {
-		defer aggregateWG.Done()
-		for arg := range aggregateQ {
-			copyFileArgs = append(copyFileArgs, arg)
-		}
-	}()
-	err = aggregateCopyFileArgs(ctx, aggregateQ, srcStorage, destStorage, srcPath, destDirPath, updateDuration, ignores, srcFileInfos, nil)
-	// エラーでも必ず閉じる。もとは早期 return しており、
-	// 集約用のゴルーチンが残ったままになっていた。
-	close(aggregateQ)
-	aggregateWG.Wait()
-	if err != nil {
-		return nil, fmt.Errorf("error at cp: %w", err)
-	}
-
-	fmt.Printf("%dつのファイルのコピーを開始します\n", len(copyFileArgs))
-
-	// コピーする
-	started := time.Now()
-	result := &copyResult{}
-	mu := &sync.Mutex{}
-	copyQ := make(chan *copyFileArg, worker)
-	copyWG := &sync.WaitGroup{}
-	for i := 0; i < worker; i++ {
-		copyWG.Add(1)
-		go func() {
-			defer copyWG.Done()
-			for arg := range copyQ {
-				fileStarted := time.Now()
-				bytes, err := copyFile(ctx, arg.srcStorage, arg.destStorage, arg.srcFilePath, arg.destDirPath)
-				elapsed := time.Since(fileStarted)
-
-				// 端末の表示とは独立して、転送1件につき1レコードを記録する。
-				// あとから「どのファイルが失敗したか」を追えるようにするため。
-				rec := hbglog.TransferRecord{
-					SrcStorage: arg.srcStorage.Type(),
-					SrcPath:    arg.srcFilePath,
-					DstStorage: arg.destStorage.Type(),
-					DstPath:    arg.destDirPath,
-					Bytes:      bytes,
-					Duration:   elapsed,
-					Result:     hbglog.ResultCopied,
-					Err:        err,
-				}
-				if err != nil {
-					rec.Result = hbglog.ResultFailed
-				}
-				hbglog.LogTransfer(rec)
-
-				mu.Lock()
-				if err != nil {
-					err = fmt.Errorf("%s:%s -> %s:%s: %w", arg.srcStorage.Type(), arg.srcFilePath, arg.destStorage.Type(), arg.destDirPath, err)
-					result.Failed++
-					if len(result.Errors) < maxReportedErrors {
-						result.Errors = append(result.Errors, err)
-					}
-					log.Printf("%s", err)
-				} else {
-					result.Transferred++
-				}
-				mu.Unlock()
-			}
-		}()
-	}
-	for _, arg := range copyFileArgs {
-		copyQ <- arg
-	}
-	close(copyQ)
-	copyWG.Wait()
-
-	result.Elapsed = time.Since(started)
-	hbglog.LogSummary(result.Transferred, result.Failed, result.Elapsed)
-	return result, nil
+// passReporter は全体のやり直しを利用者に伝えます。
+type passReporter struct {
+	r progress.Reporter
 }
 
-// ensureDestDir はコピー先ディレクトリを用意し、その中身を返します。
-// ディレクトリが存在しない場合は作成します。
-//
-// もとは同じ処理が2箇所にコピーされていました。
-func ensureDestDir(ctx context.Context, destStorage storage.Storage, destDirPath string) ([]storage.FileInfo, error) {
-	destFileInfos, err := storage.ListAll(ctx, destStorage, destDirPath)
-	if err == nil {
-		return destFileInfos, nil
-	}
-
-	// ディレクトリがないと List がエラーになりえるので、作ってから列挙し直す。
-	if mkErr := mkDirWithRetry(ctx, destStorage, destDirPath); mkErr != nil {
-		return nil, mkErr
-	}
-
-	destFileInfos, err = storage.ListAll(ctx, destStorage, destDirPath)
-	if err != nil {
-		return nil, fmt.Errorf("error at list directory %s:%s: %w", destStorage.Type(), destDirPath, err)
-	}
-	return destFileInfos, nil
+func (p *passReporter) PassStarted(pass, maxPasses int) {
+	p.r.Logf("[pass %d/%d]", pass, maxPasses)
 }
 
-// mkDirWithRetry はディレクトリの作成を試みます。
-//
-// クラウドストレージは短時間に叩きすぎると拒否されることがあるため、
-// 間隔を空けて1度だけ再試行します。エラーの種類を見た本格的な再試行
-// （指数バックオフ）は今後の課題です。
-func mkDirWithRetry(ctx context.Context, destStorage storage.Storage, destDirPath string) error {
-	const retryInterval = time.Second
-
-	var err error
-	for attempt := 0; attempt < 2; attempt++ {
-		if destStorage.Type() != "local" {
-			time.Sleep(retryInterval)
-		}
-		if err = destStorage.Mkdir(ctx, destDirPath); err == nil {
-			return nil
-		}
-	}
-	return fmt.Errorf("error at create directory %s:%s: %w", destStorage.Type(), destDirPath, err)
-}
-
-// resolveSrcFileInfos は、コマンドラインで指定されたコピー元を解決します。
-// 何にも一致しなかった場合はエラーを返します。
-func resolveSrcFileInfos(ctx context.Context, srcStorage storage.Storage, srcPath string) ([]storage.FileInfo, error) {
-	parentDir := filepath.ToSlash(filepath.Dir(srcPath))
-	srcFiles, err := storage.ListAll(ctx, srcStorage, parentDir)
-	if err != nil {
-		return nil, fmt.Errorf("failed list %s at %s: %w", parentDir, srcStorage.Type(), err)
-	}
-
-	srcFileInfos, err := glob(srcFiles, srcPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed glob %s. %w", srcPath, err)
-	}
-	if len(srcFileInfos) == 0 {
-		return nil, fmt.Errorf("コピー元が見つかりません: %s:%s", srcStorage.Type(), srcPath)
-	}
-	return srcFileInfos, nil
-}
-
-// destFileInfosは、移動先フォルダをListしたもの。
-// srcFileInfosは、移動元フォルダをListしたもの。
-func aggregateCopyFileArgs(ctx context.Context, q chan *copyFileArg, srcStorage, destStorage storage.Storage, srcPath, destDirPath string, updateDuration time.Duration, ignores []string, srcFileInfos []storage.FileInfo, destFileInfos []storage.FileInfo) error {
-	// どちらもディレクトリの場合
-	var err error
-
-	if srcFileInfos == nil {
-		parentDir := filepath.ToSlash(filepath.Dir(srcPath))
-		srcFiles, listErr := storage.ListAll(ctx, srcStorage, parentDir)
-		if listErr != nil {
-			return fmt.Errorf("failed list %s at %s: %w", parentDir, srcStorage.Type(), listErr)
-		}
-		// もとは glob のエラーをブロックの外で検査していたが、
-		// ブロック内で := により err がシャドーされていたため、
-		// 外側の検査は常に nil を見る死にコードになっていた。
-		srcFileInfos, err = glob(srcFiles, srcPath)
-		if err != nil {
-			return fmt.Errorf("failed glob %s. %w", srcPath, err)
-		}
-	}
-
-	if destFileInfos == nil {
-		destFileInfos, err = ensureDestDir(ctx, destStorage, destDirPath)
-		if err != nil {
-			return err
-		}
-	}
-
-Loop:
-	for _, srcFileInfo := range srcFileInfos {
-		// 無視するファイル名だったら無視
-		for _, ignore := range ignores {
-			if srcFileInfo.Name == ignore {
-				continue Loop
-			}
-		}
-
-		// ディレクトリだったら再帰的に
-		if srcFileInfo.IsDir {
-			files, err := storage.ListAll(ctx, srcStorage, srcFileInfo.Path)
-			if err != nil {
-				return fmt.Errorf("failed list %s at %s. %w", srcFileInfo.Name, srcStorage.Type(), err)
-			}
-
-			// もとはコピー先のパスを「子ファイルの親ディレクトリ」から導出していた。
-			// そのため子を持たないディレクトリでは空文字になり、
-			// コピー先に作られないばかりか、続く List("") が失敗していた。
-			// コピー元のディレクトリ名から直接求める。
-			childDestDirPath := filepath.ToSlash(filepath.Join(destDirPath, filepath.Base(srcFileInfo.Path)))
-
-			// 中身が空でも、ここでコピー先のディレクトリが作られる。
-			childDestFileInfos, err := ensureDestDir(ctx, destStorage, childDestDirPath)
-			if err != nil {
-				return err
-			}
-
-			for _, file := range files {
-				if file.IsDir {
-					err = aggregateCopyFileArgs(ctx, q, srcStorage, destStorage, filepath.ToSlash(file.Path), childDestDirPath, updateDuration, ignores, nil, nil)
-				} else {
-					// files は srcFileInfo.Path を列挙した結果そのものなので、
-					// もとはここで同じディレクトリを List し直していた。
-					// クラウドストレージでは無駄な往復になる。
-					err = aggregateCopyFileArgs(ctx, q, srcStorage, destStorage, filepath.ToSlash(file.Path), childDestDirPath, updateDuration, ignores, []storage.FileInfo{file}, childDestFileInfos)
-				}
-				if err != nil {
-					return err
-				}
-			}
-			continue Loop
-		}
-
-		// ファイルで、
-		// 最終更新時刻の差がそれ未満かつ、ファイルサイズが同一だったらスキップ
-		if shouldSkipCopy(srcFileInfo, destFileInfos, updateDuration) {
-			continue Loop
-		}
-
-		// コピー
-		q <- &copyFileArg{
-			srcStorage:  srcStorage,
-			destStorage: destStorage,
-			srcFilePath: srcFileInfo.Path,
-			destDirPath: destDirPath,
-		}
-	}
-	return nil
-}
-
-// shouldSkipCopy は、srcFileInfo をコピーせずスキップしてよいかを判定します。
-//
-// 判定規則は「コピー先に同名のファイルがあり、かつ
-// 最終更新時刻の差が updateDuration 以内で、かつサイズが一致する」ことです。
-//
-// 注意: 時刻差は絶対値で比較しているため、コピー先のほうが新しい場合でも
-// updateDuration を超えていればコピー対象になります（＝上書きされます）。
-// これは既存の挙動であり、意図的にそのまま維持しています。
-func shouldSkipCopy(srcFileInfo storage.FileInfo, destFileInfos []storage.FileInfo, updateDuration time.Duration) bool {
-	for _, destFileInfo := range destFileInfos {
-		if srcFileInfo.Name != destFileInfo.Name {
-			continue
-		}
-		srcTimeUTC := srcFileInfo.ModTime.UTC()
-		destTimeUTC := destFileInfo.ModTime.UTC()
-		duration := srcTimeUTC.Sub(destTimeUTC)
-
-		d := int64(duration)
-		if d < 0 {
-			d *= int64(-1)
-		}
-		if d <= int64(updateDuration) && srcFileInfo.Size == destFileInfo.Size {
-			return true
-		}
-	}
-	return false
-}
-
-type copyFileArg struct {
-	srcStorage  storage.Storage
-	destStorage storage.Storage
-	srcFilePath string
-	destDirPath string
-}
-
-// copyFile は1ファイルをコピーし、転送したバイト数を返します。
-// copyFile は1ファイルをコピーし、転送したバイト数を返します。
-//
-// 同じストレージ内でサーバー側コピーが使える場合は内容を転送しません。
-// また、宣言されたサイズと実際に書き込まれたサイズの食い違いは
-// storage.Copy が検出します。
-func copyFile(ctx context.Context, srcStorage, destStorage storage.Storage, srcFilePath, destDirPath string) (int64, error) {
-	fmt.Printf("copy %s:%s -> %s:%s\n", srcStorage.Type(), srcFilePath, destStorage.Type(), destDirPath)
-
-	dstPath := filepath.ToSlash(filepath.Join(destDirPath, filepath.Base(srcFilePath)))
-
-	info, err := storage.Copy(ctx, srcStorage, srcFilePath, destStorage, dstPath, storage.CopyOptions{})
-	if err != nil {
-		return 0, err
-	}
-	return info.Size, nil
+func (p *passReporter) PassRetrying(failed int, wait time.Duration) {
+	p.r.Logf("%d件失敗しました。%s待機して再実行します...", failed, wait.Round(time.Second))
 }

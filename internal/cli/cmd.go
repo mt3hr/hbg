@@ -3,13 +3,10 @@ package cli
 import (
 	"errors"
 	"fmt"
-	"log"
 	"os"
-	"path/filepath"
 
 	"github.com/mt3hr/hbg"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 )
 
 // プロセスの終了コード。
@@ -98,9 +95,13 @@ var (
 コマンドでは "名前:パス" の形式で指定します。`,
 		SilenceUsage:  true,
 		SilenceErrors: true, // エラーの表示は Execute で行う
-		PersistentPreRunE: func(_ *cobra.Command, _ []string) error {
+		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
+			// 設定ファイル自体を操作するコマンドは、設定がなくても動く必要がある。
+			if skipsConfigLoad(cmd) {
+				return nil
+			}
 			if err := loadConfig(); err != nil {
-				return withExitCode(ExitUsage, fmt.Errorf("error at load config file: %w", err))
+				return withExitCode(ExitUsage, err)
 			}
 			return nil
 		},
@@ -122,9 +123,10 @@ func init() {
 	rootCmd.AddCommand(removeCmd)
 	rootCmd.AddCommand(listCmd)
 	rootCmd.AddCommand(shellCmd)
+	rootCmd.AddCommand(configCmd)
 
 	rootPf := rootCmd.PersistentFlags()
-	rootPf.StringVar(&rootOpt.configfile, "config_file", "", "コンフィグファイル")
+	rootPf.StringVar(&rootOpt.configfile, "config_file", "", "設定ファイルのパス")
 }
 
 func storageMapFromConfig(c *Config) (map[string]hbg.Storage, error) {
@@ -165,113 +167,24 @@ func storageMapFromConfig(c *Config) (map[string]hbg.Storage, error) {
 	return storages, nil
 }
 
+// skipConfigLoadAnnotation が付いたコマンドは、設定ファイルを読み込まずに実行します。
+const skipConfigLoadAnnotation = "hbg/skip-config-load"
+
+// skipsConfigLoad は、そのコマンド（または祖先）が設定ファイルの
+// 読み込みを必要としないかを返します。
+func skipsConfigLoad(cmd *cobra.Command) bool {
+	for c := cmd; c != nil; c = c.Parent() {
+		if c.Annotations[skipConfigLoadAnnotation] == "true" {
+			return true
+		}
+	}
+	return false
+}
+
 func getConfigFile() string {
 	return rootOpt.configfile
 }
+
 func getConfig() *Config {
 	return config
-}
-func getConfigName() string {
-	return "hbg_config"
-}
-func getConfigExt() string {
-	return ".yaml"
-}
-func createDefaultConfigYAML() string {
-	return `DefaultWorker: 2
-Dropbox:
-- name: dropbox
-# Googledrive:
-# - name: googledrive
-Local:
-  name: local
-`
-}
-
-func loadConfig() error {
-	configOpt := getConfigFile()
-	// パッケージ変数の config を隠さないよう別名にする。
-	cfg := getConfig()
-	configName := getConfigName()
-	configExt := getConfigExt()
-
-	v := viper.New()
-	configPaths := []string{}
-	if configOpt != "" {
-		// コンフィグファイルが明示的に指定された場合はそれを
-		v.SetConfigFile(configOpt)
-		configPaths = append(configPaths, configOpt)
-	} else {
-		// 実行ファイルの親ディレクトリ、カレントディレクトリ、ホームディレクトリの順に
-		v.SetConfigName(configName)
-		exe, err := os.Executable()
-		if err != nil {
-			err = fmt.Errorf("error at get executable file path: %w", err)
-			log.Print(err)
-		} else {
-			v.AddConfigPath(filepath.Dir(exe))
-			configPaths = append(configPaths, filepath.Join(filepath.Dir(exe), configName+configExt))
-		}
-
-		v.AddConfigPath(".")
-		configPaths = append(configPaths, filepath.Join(".", configName+configExt))
-
-		home, err := os.UserHomeDir()
-		if err != nil {
-			err = fmt.Errorf("error at get user home directory: %w", err)
-			log.Print(err)
-		} else {
-			v.AddConfigPath(home)
-			configPaths = append(configPaths, filepath.Join(home, configName+configExt))
-		}
-	}
-
-	// 読み込んでcfgを作成する
-	existConfigPath := false
-	for _, configPath := range configPaths {
-		if _, err := os.Stat(configPath); err == nil {
-			existConfigPath = true
-			break
-		}
-	}
-	if !existConfigPath {
-		// コンフィグファイルが指定されていなくてコンフィグファイルが見つからなかった場合、
-		// ホームディレクトリにデフォルトコンフィグファイルを作成する。
-		// できなければカレントディレクトリにコンフィグファイルを作成する。
-		if configOpt == "" {
-			configDir := ""
-			home, err := os.UserHomeDir()
-			if err != nil {
-				err = fmt.Errorf("error at get user home directory: %w", err)
-				log.Print(err)
-				configDir = "."
-			} else {
-				configDir = home
-			}
-
-			configFileName := filepath.Join(configDir, configName+configExt)
-			err = os.WriteFile(configFileName, []byte(createDefaultConfigYAML()), os.ModePerm)
-			if err != nil {
-				err = fmt.Errorf("error at write file to %s: %w", configFileName, err)
-				return err
-			}
-			v.SetConfigFile(configFileName)
-		} else {
-			err := fmt.Errorf("コンフィグファイルが見つかりませんでした。")
-			return err
-		}
-	}
-
-	err := v.ReadInConfig()
-	if err != nil {
-		err = fmt.Errorf("error at read in config: %w", err)
-		return err
-	}
-
-	err = v.Unmarshal(cfg)
-	if err != nil {
-		err = fmt.Errorf("error at unmarshal config file: %w", err)
-		return err
-	}
-	return nil
 }

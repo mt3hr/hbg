@@ -142,3 +142,33 @@ func TestGoogleAuthCodeOptionsRequestsOfflineAccess(t *testing.T) {
 		t.Errorf("再認可でリフレッシュトークンを確実に得る指定がない: %s", url)
 	}
 }
+
+// 登録手順に載せた URI と、実際に認可要求へ載せる URI が一致することを
+// 確かめます。
+//
+// Dropbox は完全一致でしか照合しないので、片方だけ直すと
+// 認可画面で invalid redirect uri になります。原因は Dropbox 側にしか
+// 出ないため、ここで固定しておかないと気づけません。
+func TestDropboxRedirectURIsMatchInstructions(t *testing.T) {
+	instructions := setupInstructions("dropbox")
+
+	uris := DropboxRedirectURIs()
+	if len(uris) != len(DropboxRedirectPorts) {
+		t.Fatalf("URI が %d 個、ポートは %d 個", len(uris), len(DropboxRedirectPorts))
+	}
+	for _, uri := range uris {
+		if !strings.Contains(instructions, uri) {
+			t.Errorf("登録手順に %q が載っていない", uri)
+		}
+	}
+
+	// Dropbox が http を許すのは localhost だけ。127.0.0.1 は登録できない。
+	for _, uri := range uris {
+		if !strings.HasPrefix(uri, "http://localhost:") {
+			t.Errorf("%q は localhost でない。Dropbox には登録できない", uri)
+		}
+	}
+	if strings.Contains(instructions, "127.0.0.1") {
+		t.Error("登録手順に 127.0.0.1 が残っている")
+	}
+}

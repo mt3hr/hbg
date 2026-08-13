@@ -25,6 +25,12 @@ import (
 // DefaultTimeout は、ブラウザでの許可操作を待つ既定の時間です。
 const DefaultTimeout = 3 * time.Minute
 
+// DefaultRedirectHost は、リダイレクト URI に書く既定のホストです。
+//
+// RFC 8252 は名前解決を経ない 127.0.0.1 を勧めており、任意のループバックを
+// 受け付ける提供元（Google, Microsoft）ではこちらを使います。
+const DefaultRedirectHost = "127.0.0.1"
+
 // ErrDenied は、ユーザーがブラウザ上で許可しなかったことを表します。
 var ErrDenied = errors.New("認可が拒否されました")
 
@@ -40,6 +46,14 @@ type Flow struct {
 	// ループバックなら任意ポートを許可するため、空で構いません。
 	// 先頭から順に試し、使えるものを採用します。
 	FixedPorts []int
+
+	// RedirectHost は、リダイレクト URI に書くホスト名です。
+	// 空なら DefaultRedirectHost（127.0.0.1）を使います。
+	//
+	// 待ち受けは常に 127.0.0.1 で、ここで変えるのは URI の見た目だけです。
+	// 完全一致を要求する提供元では、登録した文字列と1文字でも違えば
+	// invalid redirect uri になるため、提供元に合わせる必要があります。
+	RedirectHost string
 
 	// UsePKCE を真にすると PKCE（RFC 7636）を使います。
 	// クライアントシークレットを持たない公開クライアントでは必須です。
@@ -86,6 +100,18 @@ func (f *Flow) listen(ctx context.Context) (net.Listener, error) {
 		"他のアプリケーションが使用している可能性があります: %w", f.FixedPorts, lastErr)
 }
 
+// RedirectURI は、認可要求に載せるリダイレクト URI を組み立てます。
+//
+// アプリ登録時に人が貼り付ける文字列でもあるので、案内の文面もこれで作ります。
+// コードと案内が別々に書かれていると、片方だけ直したときに
+// invalid redirect uri になり、原因が認可画面からは分かりません。
+func RedirectURI(host string, port int) string {
+	if host == "" {
+		host = DefaultRedirectHost
+	}
+	return fmt.Sprintf("http://%s:%d/callback", host, port)
+}
+
 // callbackResult は、リダイレクトで受け取った内容です。
 type callbackResult struct {
 	code string
@@ -108,7 +134,7 @@ func (f *Flow) Run(ctx context.Context) (*oauth2.Token, error) {
 	if !ok {
 		return nil, fmt.Errorf("待ち受けのアドレスを取得できませんでした: %v", ln.Addr())
 	}
-	f.Config.RedirectURL = fmt.Sprintf("http://127.0.0.1:%d/callback", addr.Port)
+	f.Config.RedirectURL = RedirectURI(f.RedirectHost, addr.Port)
 
 	// state は CSRF 対策。要求ごとにランダムでなければならない。
 	state, err := randomState()

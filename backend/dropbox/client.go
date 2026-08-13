@@ -37,6 +37,25 @@ func oauth2Config(cfg Config) (*oauth2.Config, error) {
 	return auth.DropboxOAuth2Config(creds), nil
 }
 
+// loginFlow は認可フローを組み立てます。
+//
+// Login から切り出してあるのは、リダイレクト URI の指定が
+// アプリ登録時の値と一致していることをテストから確かめるためです。
+func loginFlow(oauthCfg *oauth2.Config, opts auth.LoginOptions) *auth.Flow {
+	return &auth.Flow{
+		Config:  oauthCfg,
+		UsePKCE: true,
+		// Dropbox はリダイレクトURIの完全一致を要求するため、
+		// アプリ登録時に設定したホストとポートを使う。
+		// 既定の 127.0.0.1 のままだと invalid redirect uri になる。
+		FixedPorts:           auth.DropboxRedirectPorts,
+		RedirectHost:         auth.DropboxRedirectHost,
+		ExtraAuthCodeOptions: auth.DropboxAuthCodeOptions(),
+		OpenBrowser:          opts.OpenBrowser,
+		Prompt:               opts.Prompt,
+	}
+}
+
 // Login は対話的に認可を行い、トークンを保存します。
 // hbg auth login から呼ばれます。
 func Login(ctx context.Context, cfg Config, opts auth.LoginOptions) error {
@@ -45,18 +64,7 @@ func Login(ctx context.Context, cfg Config, opts auth.LoginOptions) error {
 		return err
 	}
 
-	flow := &auth.Flow{
-		Config:  oauthCfg,
-		UsePKCE: true,
-		// Dropbox はリダイレクトURIの完全一致を要求するため、
-		// アプリ登録時に設定したポートを使う。
-		FixedPorts:           auth.DropboxRedirectPorts,
-		ExtraAuthCodeOptions: auth.DropboxAuthCodeOptions(),
-		OpenBrowser:          opts.OpenBrowser,
-		Prompt:               opts.Prompt,
-	}
-
-	tok, err := flow.Run(ctx)
+	tok, err := loginFlow(oauthCfg, opts).Run(ctx)
 	if err != nil {
 		return err
 	}

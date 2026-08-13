@@ -12,6 +12,26 @@ import (
 // あらかじめ登録しておいた候補を順に試します。
 var DropboxRedirectPorts = []int{53682, 53683, 53684}
 
+// DropboxRedirectHost は Dropbox のリダイレクト URI に書くホストです。
+//
+// Dropbox が http を許すのは localhost だけで、127.0.0.1 は登録できません。
+// 待ち受け自体は 127.0.0.1 のままで、URI の見た目だけを合わせます。
+//
+// 以前はここが既定の 127.0.0.1 のままだった一方、下の登録手順は localhost を
+// 案内していました。Dropbox は完全一致でしか照合しないので、手順どおりに
+// 登録しても認可画面で invalid redirect uri になっていました。
+const DropboxRedirectHost = "localhost"
+
+// DropboxRedirectURIs は、アプリ登録時に Redirect URIs へ入れる文字列です。
+// 認可要求に載せる URI と同じ組み立て方をするので、ずれません。
+func DropboxRedirectURIs() []string {
+	uris := make([]string, 0, len(DropboxRedirectPorts))
+	for _, port := range DropboxRedirectPorts {
+		uris = append(uris, RedirectURI(DropboxRedirectHost, port))
+	}
+	return uris
+}
+
 // DropboxScopes は hbg が必要とする Dropbox の権限です。
 //
 // hbg が呼ぶのはファイルの一覧・取得・作成・削除・移動だけなので、

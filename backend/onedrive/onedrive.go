@@ -11,9 +11,9 @@ import (
 	"io"
 	"path"
 	"strings"
-	"sync"
 	"time"
 
+	"github.com/mt3hr/hbg/internal/dircache"
 	"github.com/mt3hr/hbg/storage"
 )
 
@@ -44,13 +44,9 @@ type Storage struct {
 
 	chunkSize int64
 
-	// knownDirs は「ある」と分かっているディレクトリです。
-	//
-	// Graph の書き込みは、親がないと 404 で断られます。かといって
-	// 書き込みのたびに確かめると要求が倍になります。一度作った
-	// （あるいはあると分かった）ものを覚えておけば、どちらも避けられます。
-	dirsMu    sync.Mutex
-	knownDirs map[string]struct{}
+	// dirs は用意済みのディレクトリの記憶です。
+	// 書き込みのたびに親を作りにいかずに済ませるためのものです。
+	dirs dircache.Cache
 }
 
 // New は OneDrive に接続します。
@@ -80,7 +76,6 @@ func New(ctx context.Context, cfg Config) (*Storage, error) {
 		},
 		root:      strings.Trim(cleanPath(cfg.Root), "/"),
 		chunkSize: defaultChunkSize,
-		knownDirs: map[string]struct{}{},
 	}, nil
 }
 
@@ -247,56 +242,8 @@ func (s *Storage) Put(ctx context.Context, p string, r io.Reader, meta storage.O
 }
 
 // ensureDir は書き込み先のディレクトリを用意します。
-//
-// 一度確かめたものは覚えておくので、同じディレクトリへ続けて
-// 書き込むあいだは要求が増えません。転送の側が先に Mkdir を
-// 呼んでいれば、そこで覚えたぶんが効いて1度も増えません。
 func (s *Storage) ensureDir(ctx context.Context, dir string) error {
-	if dir == "" || dir == "." || dir == "/" || s.dirIsKnown(dir) {
-		return nil
-	}
-
-	// 同じディレクトリへ並行して書き込むとき、作成がぶつからない
-	// よう、ここは1つずつ行う。
-	s.dirsMu.Lock()
-	defer s.dirsMu.Unlock()
-
-	if _, ok := s.knownDirs[dir]; ok {
-		return nil
-	}
-	if err := s.mkdirAll(ctx, dir); err != nil {
-		return err
-	}
-	s.knownDirs[dir] = struct{}{}
-	return nil
-}
-
-func (s *Storage) dirIsKnown(dir string) bool {
-	s.dirsMu.Lock()
-	defer s.dirsMu.Unlock()
-	_, ok := s.knownDirs[dir]
-	return ok
-}
-
-// rememberDir は作ったディレクトリを覚えます。
-func (s *Storage) rememberDir(dir string) {
-	s.dirsMu.Lock()
-	defer s.dirsMu.Unlock()
-	s.knownDirs[dir] = struct{}{}
-}
-
-// forgetDir は消したディレクトリを忘れます。
-func (s *Storage) forgetDir(dir string) {
-	s.dirsMu.Lock()
-	defer s.dirsMu.Unlock()
-
-	delete(s.knownDirs, dir)
-	prefix := strings.TrimSuffix(dir, "/") + "/"
-	for k := range s.knownDirs {
-		if strings.HasPrefix(k, prefix) {
-			delete(s.knownDirs, k)
-		}
-	}
+	return s.dirs.Ensure(ctx, dir, s.mkdirAll)
 }
 
 // readHead は先頭を最大 limit バイト読み、読みきったかどうかを返します。
@@ -403,7 +350,7 @@ func (s *Storage) Mkdir(ctx context.Context, dir string) error {
 	if err := s.mkdirAll(ctx, full); err != nil {
 		return s.wrapErr("mkdir", dir, err)
 	}
-	s.rememberDir(full)
+	s.dirs.Remember(full)
 	return nil
 }
 
@@ -459,7 +406,7 @@ func (s *Storage) Remove(ctx context.Context, p string) error {
 			fmt.Errorf("%w: 中身ごと消すには purge を使ってください", storage.ErrNotEmpty))
 	}
 
-	s.forgetDir(s.full(p))
+	s.dirs.Forget(s.full(p))
 	return s.wrapErr("remove", p, s.client.deleteItem(ctx, s.full(p)))
 }
 
@@ -469,7 +416,7 @@ func (s *Storage) Purge(ctx context.Context, dir string) error {
 		return s.wrapErr("purge", dir, errors.New("起点は削除できません"))
 	}
 
-	s.forgetDir(s.full(dir))
+	s.dirs.Forget(s.full(dir))
 	return s.wrapErr("purge", dir, s.client.deleteItem(ctx, s.full(dir)))
 }
 

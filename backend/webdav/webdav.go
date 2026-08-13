@@ -16,9 +16,9 @@ import (
 	"net/http"
 	"path"
 	"strings"
-	"sync"
 	"time"
 
+	"github.com/mt3hr/hbg/internal/dircache"
 	"github.com/mt3hr/hbg/storage"
 )
 
@@ -36,14 +36,9 @@ type Storage struct {
 
 	canSetModTime bool
 
-	// knownDirs は「ある」と分かっているディレクトリです。
-	//
-	// WebDAV の PUT は親がないと 409 で断られます。かといって
-	// 書き込みのたびに MKCOL を投げると要求が倍になり、同じ
-	// ディレクトリへ並行して書くと衝突します。一度作った（あるいは
-	// あると分かった）ものを覚えておけば、どちらも避けられます。
-	dirsMu    sync.Mutex
-	knownDirs map[string]struct{}
+	// dirs は用意済みのディレクトリの記憶です。
+	// 書き込みのたびに親を作りにいかずに済ませるためのものです。
+	dirs dircache.Cache
 }
 
 // New は WebDAV に接続します。
@@ -64,7 +59,6 @@ func New(_ context.Context, cfg Config) (*Storage, error) {
 		client:        client,
 		root:          strings.Trim(cleanPath(cfg.Root), "/"),
 		canSetModTime: cfg.canSetModTime(),
-		knownDirs:     map[string]struct{}{},
 	}, nil
 }
 
@@ -265,60 +259,8 @@ func (s *Storage) Put(ctx context.Context, p string, r io.Reader, meta storage.O
 }
 
 // ensureDir は書き込み先のディレクトリを用意します。
-//
-// 一度確かめたものは覚えておくので、同じディレクトリへ続けて
-// 書き込むあいだは要求が増えません。転送の側が先に Mkdir を
-// 呼んでいれば、そこで覚えたぶんが効いて1度も増えません。
-//
-// 書き込んだあとで 409 を見てから作り直す、という順にはできません。
-// 断られた時点で本文の送信が始まっていることがあり、読み手を
-// 巻き戻せないためです。
 func (s *Storage) ensureDir(ctx context.Context, dir string) error {
-	if dir == "" || dir == "/" || s.dirIsKnown(dir) {
-		return nil
-	}
-
-	// 同じディレクトリへ並行して書き込むとき、MKCOL がぶつからない
-	// よう、ここは1つずつ行う。
-	s.dirsMu.Lock()
-	defer s.dirsMu.Unlock()
-
-	if _, ok := s.knownDirs[dir]; ok {
-		return nil
-	}
-	if err := s.mkdirAll(ctx, dir); err != nil {
-		return err
-	}
-	s.knownDirs[dir] = struct{}{}
-	return nil
-}
-
-func (s *Storage) dirIsKnown(dir string) bool {
-	s.dirsMu.Lock()
-	defer s.dirsMu.Unlock()
-	_, ok := s.knownDirs[dir]
-	return ok
-}
-
-// rememberDir は作ったディレクトリを覚えます。
-func (s *Storage) rememberDir(dir string) {
-	s.dirsMu.Lock()
-	defer s.dirsMu.Unlock()
-	s.knownDirs[dir] = struct{}{}
-}
-
-// forgetDir は消したディレクトリを忘れます。
-func (s *Storage) forgetDir(dir string) {
-	s.dirsMu.Lock()
-	defer s.dirsMu.Unlock()
-
-	delete(s.knownDirs, dir)
-	prefix := strings.TrimSuffix(dir, "/") + "/"
-	for k := range s.knownDirs {
-		if strings.HasPrefix(k, prefix) {
-			delete(s.knownDirs, k)
-		}
-	}
+	return s.dirs.Ensure(ctx, dir, s.mkdirAll)
 }
 
 // contentLength は書き込みで伝える長さを決めます。
@@ -383,7 +325,7 @@ func (s *Storage) Mkdir(ctx context.Context, dir string) error {
 	if err := s.mkdirAll(ctx, full); err != nil {
 		return s.wrapErr("mkdir", dir, err)
 	}
-	s.rememberDir(full)
+	s.dirs.Remember(full)
 	return nil
 }
 
@@ -439,7 +381,7 @@ func (s *Storage) Remove(ctx context.Context, p string) error {
 		}
 	}
 
-	s.forgetDir(s.full(p))
+	s.dirs.Forget(s.full(p))
 	return s.wrapErr("remove", p, s.client.remove(ctx, s.full(p)))
 }
 
@@ -463,7 +405,7 @@ func (s *Storage) Purge(ctx context.Context, dir string) error {
 		return s.wrapErr("purge", dir, err)
 	}
 
-	s.forgetDir(s.full(dir))
+	s.dirs.Forget(s.full(dir))
 	return s.wrapErr("purge", dir, s.client.remove(ctx, ensureSlash(s.full(dir))))
 }
 

@@ -98,10 +98,12 @@ func (r *Result) accumulate(other *Result, pass int) {
 	r.Bytes += other.Bytes
 	r.BytesSkipped += other.BytesSkipped
 	r.Elapsed += other.Elapsed
+	r.Deleted += other.Deleted
 	r.Aborted = other.Aborted
 
 	// 失敗の数と内容は最新のものに置き換える。
 	r.Failed = other.Failed
+	r.DeleteFailed = other.DeleteFailed
 	r.Errors = other.Errors
 
 	_ = pass

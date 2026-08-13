@@ -22,6 +22,15 @@ $ hbg copy local:C:/photos dropbox:/backup
 
 ## インストール
 
+### 配布物を使う
+
+GitHub の Releases から、お使いの環境向けのファイルを取得して展開し、
+`hbg`（Windows なら `hbg.exe`）をパスの通った場所に置いてください。
+
+Windows・macOS・Linux の 64bit 版と、macOS・Linux の arm64 版があります。
+
+### ソースから
+
 ```console
 go install github.com/mt3hr/hbg/cmd/hbg@latest
 ```
@@ -506,6 +515,54 @@ hbg copy --retry 3 --retry-wait 5s --retry-pass 2 --retry-pass-wait 60s \
 サーバーから待ち時間を指示された場合（429 の `Retry-After`）はそちらを優先します。
 1件も転送できなかったやり直しがあれば、回数が残っていても打ち切ります。
 
+### sync — コピー先をコピー元に合わせる
+
+```console
+hbg sync local:C:/photos dropbox:/backup
+hbg sync --delete local:C:/photos dropbox:/backup
+```
+
+`--delete` を付けると、コピー元にないものをコピー先から削除します。
+付けない場合の動きは `copy` と同じです。
+
+削除には次の決まりがあります。取り返しのつかない操作なので、
+判断に迷いのある場面では消しません。
+
+- **転送に1件でも失敗があれば削除しません。** コピー元を読めなかった
+  だけで「向こうには無い」と判断すると、取っておきたいものを消すことに
+  なるためです。
+- **`--include` や `--exclude` で対象外にしたものは消しません。**
+  転送していないものを消すのは筋が通らないためです。
+- 深いものから消します。ディレクトリは中身が無くならないと消せません。
+
+**はじめて実行するときは `--dry-run` で確かめてください。**
+
+```console
+hbg sync --delete --dry-run local:C:/photos dropbox:/backup
+```
+
+### move — 移動・改名
+
+```console
+hbg move local:C:/photos/a.jpg local:C:/photos/2024/a.jpg
+hbg move dropbox:/古い名前 dropbox:/新しい名前
+```
+
+同じストレージの中でファイルやディレクトリを移動・改名します。
+中身は運ばれないので、大きなファイルでもすぐ終わります。
+
+別のストレージへは移せません。`copy` してから `remove` してください。
+1つの操作にまとめると、コピーに失敗したのに元を消してしまう、といった
+事故が起こりえます。
+
+### mkdir — ディレクトリを作る
+
+```console
+hbg mkdir dropbox:/backup/2024
+```
+
+途中のディレクトリも必要なら作ります。すでにある場合は何もしません。
+
 ### check — 差分の確認
 
 ```console
@@ -554,6 +611,15 @@ hbg shell
 ```
 
 `cd` / `cs`（ストレージ切り替え）/ `pwd` / `ls` / `cp` / `rm` / `exit` が使えます。
+
+### completion — 入力補完
+
+```console
+hbg completion bash      # bash / zsh / fish / powershell
+```
+
+シェルの入力補完の設定を書き出します。設定の仕方は
+`hbg completion --help` に書いてあります。
 
 ### config — 設定の操作
 

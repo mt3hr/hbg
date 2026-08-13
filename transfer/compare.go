@@ -17,6 +17,9 @@ const (
 	ActionSkip Action = iota
 	// ActionCopy は転送することを表します。
 	ActionCopy
+	// ActionDelete はコピー先から消すことを表します。
+	// 同期で --delete を指定したときにだけ使われます。
+	ActionDelete
 )
 
 // CompareField は比較に使う項目です。

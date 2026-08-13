@@ -54,6 +54,12 @@ type Options struct {
 	// BandwidthLimit は1秒あたりの転送バイト数の上限です。0 なら無制限。
 	BandwidthLimit int64
 
+	// Delete を真にすると、コピー元にないものをコピー先から消します。
+	//
+	// 転送に1件でも失敗があれば削除は行いません。読めなかったものを
+	// 「向こうには無い」と取り違えて消してしまわないためです。
+	Delete bool
+
 	// DryRun を真にすると、実際には転送せず何が転送されるかだけを示します。
 	DryRun bool
 
@@ -129,6 +135,11 @@ type Result struct {
 	BytesSkipped int64
 	Elapsed      time.Duration
 
+	// Deleted はコピー元にないため消した件数です。
+	Deleted int
+	// DeleteFailed は削除に失敗した件数です。
+	DeleteFailed int
+
 	// Errors は表示用に保持する失敗の詳細です。
 	// MaxReportedErrors 件で打ち切られます。
 	Errors []error
@@ -170,6 +181,11 @@ type engine struct {
 	// 作成済みのディレクトリ。同じディレクトリを何度も作らないため。
 	dirsMu   sync.Mutex
 	madeDirs map[string]struct{}
+
+	// コピー元にないのにコピー先にあるもの。
+	// 転送がすべて終わってから消します。
+	extraMu sync.Mutex
+	extra   []extraneous
 
 	// abort は中断を伝えます。
 	abort context.CancelFunc
@@ -253,6 +269,12 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 		waitErr = callerCtx.Err()
 	}
 
+	// 削除は転送がすべて終わってから行う。
+	// 途中で消すと、まだ判断していないものまで消しかねない。
+	if waitErr == nil {
+		e.deleteExtraneous(ctx)
+	}
+
 	e.mu.Lock()
 	result := e.result
 	e.mu.Unlock()
@@ -329,6 +351,34 @@ func (e *engine) recordSkip(bytes int64) {
 	if bytes > 0 {
 		e.result.BytesSkipped += bytes
 	}
+}
+
+// recordDeleted は削除を記録します。
+func (e *engine) recordDeleted() {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.result.Deleted++
+}
+
+// recordDeleteFailure は削除の失敗を記録します。
+//
+// 転送の失敗とは分けて数えます。転送は成功したのに片付けだけ
+// できなかった、という状態を区別できるようにするためです。
+func (e *engine) recordDeleteFailure(err error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	e.result.DeleteFailed++
+	if len(e.result.Errors) < MaxReportedErrors {
+		e.result.Errors = append(e.result.Errors, err)
+	}
+}
+
+// failedCount は転送に失敗した件数を返します。
+func (e *engine) failedCount() int {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.result.Failed
 }
 
 // recordFailure は失敗を記録し、上限に達していれば中断を指示します。

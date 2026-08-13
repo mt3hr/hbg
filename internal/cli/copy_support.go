@@ -45,6 +45,10 @@ func writeSummary(w io.Writer, r *transfer.Result) {
 	}
 	fmt.Fprintln(w)
 
+	if s := deleteSummary(r.Deleted, r.DeleteFailed); s != "" {
+		fmt.Fprintln(w, s)
+	}
+
 	if len(r.Errors) == 0 {
 		return
 	}

@@ -179,6 +179,13 @@ func init() {
 }
 
 func runCopy(cmd *cobra.Command, _ []string) error {
+	return runTransfer(cmd, false)
+}
+
+// runTransfer は copy と sync の本体です。
+//
+// 違いは、コピー元にないものをコピー先から消すかどうかだけです。
+func runTransfer(cmd *cobra.Command, deleteExtraneous bool) error {
 	ctx := cmd.Context()
 
 	resolver, err := resolverFromConfig(config)
@@ -240,6 +247,7 @@ func runCopy(cmd *cobra.Command, _ []string) error {
 		},
 		TPS:            copyOpt.tps,
 		BandwidthLimit: bwLimit,
+		Delete:         deleteExtraneous,
 		DryRun:         copyOpt.dryRun,
 		MaxErrors:      copyOpt.maxErrors,
 		Reporter:       reporter,
@@ -265,9 +273,13 @@ func runCopy(cmd *cobra.Command, _ []string) error {
 			srcStorage.Type(), copyOpt.srcPath, destStorage.Type(), copyOpt.destDirPath, err)
 	}
 
-	if result.Failed > 0 {
+	switch {
+	case result.Failed > 0:
 		return withExitCode(ExitTransferFailed,
 			fmt.Errorf("%d件のファイルのコピーに失敗しました", result.Failed))
+	case result.DeleteFailed > 0:
+		return withExitCode(ExitTransferFailed,
+			fmt.Errorf("%d件の削除に失敗しました", result.DeleteFailed))
 	}
 	return nil
 }

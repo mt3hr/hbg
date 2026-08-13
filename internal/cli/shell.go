@@ -10,7 +10,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/chzyer/readline"
+	"github.com/ergochat/readline"
 	"github.com/mt3hr/hbg/internal/hbghome"
 	"github.com/mt3hr/hbg/progress"
 	hbgstorage "github.com/mt3hr/hbg/storage"
@@ -70,11 +70,13 @@ var (
 			// readline のインスタンスはループの外で1度だけ作る。
 			// もとはループのたびに生成して defer で閉じており、
 			// 履歴ファイルのハンドルがプロセスの生存期間ぶん積み上がっていた。
-			l, err := readline.NewEx(&readline.Config{
+			shellConfig := readline.Config{
 				HistoryFile:     historyFile,
 				InterruptPrompt: "^C",
 				EOFPrompt:       "exit",
-			})
+			}
+
+			l, err := readline.NewEx(&shellConfig)
 			if err != nil {
 				return fmt.Errorf("failed to initialize shell. %w", err)
 			}
@@ -347,8 +349,15 @@ var (
 				)
 
 				// 補完候補は現在のストレージに依存するので毎回入れ替える。
-				l.Config.AutoComplete = completer
-				l.SetPrompt(prompt)
+				//
+				// 入れ替えのたびに Instance を作り直すと、ハンドルが
+				// 漏れるうえ履歴も途切れる。設定だけを差し替える。
+				cfg := shellConfig
+				cfg.AutoComplete = completer
+				cfg.Prompt = prompt
+				if err := l.SetConfig(&cfg); err != nil {
+					return fmt.Errorf("failed configure readline. %w", err)
+				}
 
 				line, err := l.Readline()
 				if err != nil {

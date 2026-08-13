@@ -11,6 +11,7 @@ import (
 	"github.com/mt3hr/hbg/backend"
 	_ "github.com/mt3hr/hbg/backend/s3"   // 種別 s3 を登録する
 	_ "github.com/mt3hr/hbg/backend/sftp" // 種別 sftp を登録する
+	_ "github.com/mt3hr/hbg/backend/smb"  // 種別 smb を登録する
 	"github.com/spf13/cobra"
 )
 

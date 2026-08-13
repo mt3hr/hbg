@@ -83,10 +83,12 @@ func findConfigFile() (path string, legacy bool, err error) {
 
 // loadConfig は設定ファイルを読み込み、パッケージ変数 config に格納します。
 //
-// 以前は設定ファイルが見つからないとホームディレクトリに 0777 で
-// 勝手に書き出していました。--help を打つだけでもファイルが作られるうえ、
-// 認証情報を書ける場所としてはパーミッションが緩すぎるため、
-// 自動生成はやめて hbg config init での明示的な作成に変更しています。
+// 見つからない場合は、初回起動とみなして雛形を作ります。
+//
+// 以前も同じことをしていましたが、置き場所がホームディレクトリ直下で、
+// 権限が 0777 で、しかも --help を打つだけでも書かれていました。
+// いまは $HOME/hbg 配下に 0600 で作り、実際に設定を必要とする
+// コマンドのときだけ作ります。作ったことは必ず知らせます。
 func loadConfig() error {
 	cfg := getConfig()
 
@@ -98,11 +100,15 @@ func loadConfig() error {
 
 		found, legacy, err := findConfigFile()
 		if err != nil {
-			if errors.Is(err, errConfigNotFound) {
-				primary, _ := hbghome.ConfigFile()
-				return fmt.Errorf("%w。hbg config init で作成できます（作成先: %s）", err, primary)
+			if !errors.Is(err, errConfigNotFound) {
+				return err
 			}
-			return err
+			// 初回起動。置き場所と雛形を用意する。
+			created, createErr := createInitialConfig()
+			if createErr != nil {
+				return createErr
+			}
+			found, legacy = created, false
 		}
 		if legacy {
 			warnf("非推奨の場所にある設定ファイルを読み込みました: %s\n"+
@@ -123,6 +129,28 @@ func loadConfig() error {
 
 	loadedConfigFile = configFile
 	return nil
+}
+
+// createInitialConfig は初回起動時に置き場所と設定ファイルを用意します。
+//
+// 作ったことは必ず知らせます。黙って作ると、利用者は自分が編集すべき
+// ファイルがどこにあるのか分からないままになります。
+func createInitialConfig() (string, error) {
+	if err := hbghome.EnsureLayout(); err != nil {
+		return "", fmt.Errorf("設定の置き場所を用意できませんでした: %w", err)
+	}
+
+	path, err := hbghome.ConfigFile()
+	if err != nil {
+		return "", err
+	}
+	if err := hbghome.WriteSecretFile(path, []byte(defaultConfigYAML())); err != nil {
+		return "", fmt.Errorf("設定ファイルを作成できませんでした %s: %w", path, err)
+	}
+
+	fmt.Fprintf(os.Stderr, "hbg: 設定ファイルを作成しました: %s\n", path)
+	fmt.Fprintln(os.Stderr, "     使うストレージに合わせて編集してください。")
+	return path, nil
 }
 
 // loadedConfigFile は実際に読み込んだ設定ファイルのパスです。

@@ -46,9 +46,21 @@ Go 1.25 以上が必要です。
 ## はじめて使う
 
 ```console
-hbg config init                    # 設定ファイルの雛形を作る
-hbg auth login dropbox             # クラウドを使うなら認証する
 hbg copy local:C:/photos dropbox:/backup
+```
+
+**初回はこれだけで動きます。** 設定ファイルがなければ、置き場所ごと
+雛形が作られます。どこに作ったかは画面に出ます。
+
+```
+hbg: 設定ファイルを作成しました: .../hbg/configs/config.yaml
+     使うストレージに合わせて編集してください。
+```
+
+クラウドを使う場合は、設定ファイルを編集してから認証してください。
+
+```console
+hbg auth login dropbox
 ```
 
 設定ファイルは `$HOME/hbg/configs/config.yaml` です。

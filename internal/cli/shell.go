@@ -12,8 +12,8 @@ import (
 	"time"
 
 	"github.com/chzyer/readline"
-	"github.com/mt3hr/hbg"
 	"github.com/mt3hr/hbg/internal/hbghome"
+	hbgstorage "github.com/mt3hr/hbg/storage"
 	"github.com/spf13/cobra"
 )
 
@@ -21,30 +21,41 @@ var (
 	shellCmd = &cobra.Command{
 		Use:   "shell",
 		Short: "対話シェルを起動する",
-		RunE: func(_ *cobra.Command, _ []string) error {
-			storages, err := storageMapFromConfig(config)
-			if err != nil {
-				return fmt.Errorf("failed load storages. %w", err)
-			}
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			ctx := cmd.Context()
 
-			var currentStorage hbg.Storage
-			currentPathMap := map[hbg.Storage]string{}
-			for _, storage := range storages {
-				if storage.Type() == "local" {
-					currentStorage = storage
+			resolver, err := resolverFromConfig(config)
+			if err != nil {
+				return withExitCode(ExitUsage, err)
+			}
+			defer resolver.Close()
+
+			// ストレージは使われるまで組み立てない。
+			// シェルを開くだけでは、設定にあるクラウドの認証は走らない。
+			storages := newLazyStorages(ctx, resolver)
+
+			// OS のパス規則に従うストレージ（ローカル）を起点にする。
+			var currentStorage hbgstorage.Storage
+			for _, name := range resolver.Names() {
+				s, err := storages.get(name)
+				if err != nil {
+					continue
+				}
+				if s.Features().OSPath {
+					currentStorage = s
 					abs, err := filepath.Abs(".")
 					if err != nil {
 						return fmt.Errorf("failed get working directory. %w", err)
 					}
-					currentPathMap[storage] = filepath.ToSlash(abs)
-				} else {
-					currentPathMap[storage] = "/"
+					storages.setPath(s, filepath.ToSlash(abs))
+					break
 				}
 			}
 			if currentStorage == nil {
 				return withExitCode(ExitUsage,
-					fmt.Errorf("local ストレージが設定されていないため shell を開始できません"))
+					fmt.Errorf("ローカルのストレージが設定されていないため shell を開始できません"))
 			}
+			currentPathMap := storages.paths
 
 			// 履歴は一時ディレクトリではなく $HOME/hbg 配下に置く。
 			historyFile, err := hbghome.ShellHistoryFile()
@@ -73,7 +84,7 @@ var (
 				currentPath := currentPathMap[currentStorage]
 				prompt := fmt.Sprintf("%s:%s > ", currentStorage.Name(), currentPath)
 
-				pathResolute := func(storage hbg.Storage, p string, dirOnly bool) (string, error) {
+				pathResolute := func(storage hbgstorage.Storage, p string, dirOnly bool) (string, error) {
 					p = path.Clean(p)
 					if storage.Type() == "local" {
 						p = os.ExpandEnv(p)
@@ -109,7 +120,7 @@ var (
 						strings.HasPrefix(p, "Z:") {
 					} else {
 						p = path.Join(currentPathMap[storage], p)
-						stat, err := storage.Stat(p)
+						stat, err := storage.Stat(ctx, p)
 						if stat == nil {
 							_ = err
 							return p, nil
@@ -135,7 +146,7 @@ var (
 					return str
 				}
 
-				listFilesFunc := func(storage hbg.Storage, dirOnly bool) func(string) []string {
+				listFilesFunc := func(storage hbgstorage.Storage, dirOnly bool) func(string) []string {
 					return func(file string) []string {
 						file = trimPrefix(file)
 						arg := file
@@ -171,9 +182,9 @@ var (
 							strings.HasPrefix(file, "Z:") {
 
 							existFile := false
-							var stat *hbg.FileInfo
+							var stat *hbgstorage.FileInfo
 							if file != "" {
-								stat, _ = storage.Stat(file)
+								stat, _ = storage.Stat(ctx, file)
 								if stat != nil {
 									existFile = true
 								}
@@ -188,7 +199,7 @@ var (
 									file = "/" + file
 								}
 
-								stat, err = storage.Stat(file)
+								stat, err = storage.Stat(ctx, file)
 								if err == nil {
 									existFile = true
 								} else {
@@ -198,7 +209,7 @@ var (
 										file = "/"
 									}
 
-									stat, err = storage.Stat(file)
+									stat, err = storage.Stat(ctx, file)
 									if err == nil {
 										if stat.IsDir || !dirOnly {
 											existFile = true
@@ -209,7 +220,7 @@ var (
 
 							if existFile {
 								if stat.IsDir || !dirOnly {
-									files, err := storage.List(file)
+									files, err := hbgstorage.ListAll(ctx, storage, file)
 									if err != nil {
 										// 補完候補の取得に失敗しても、シェルの操作は継続できる。
 										// 候補なしとして扱う。
@@ -231,7 +242,7 @@ var (
 						file = arg
 						currentChildItems := []string{}
 						if file == "" {
-							files, err := storage.List(currentPath)
+							files, err := hbgstorage.ListAll(ctx, storage, currentPath)
 							if err != nil {
 								// 補完候補の取得に失敗しても、シェルの操作は継続できる。
 								// 候補なしとして扱う。
@@ -245,9 +256,9 @@ var (
 							}
 						} else {
 							existFile := false
-							var stat *hbg.FileInfo
+							var stat *hbgstorage.FileInfo
 							if file != "" {
-								stat, _ = storage.Stat(file)
+								stat, _ = storage.Stat(ctx, file)
 								if stat != nil {
 									existFile = true
 								}
@@ -257,13 +268,13 @@ var (
 								file = strings.TrimPrefix(file, "/")
 								file = path.Join(currentPath, file)
 
-								stat, err = storage.Stat(file)
+								stat, err = storage.Stat(ctx, file)
 								if err == nil {
 									existFile = true
 								} else {
 									file = filepath.ToSlash(filepath.Dir(file))
 
-									stat, err = storage.Stat(file)
+									stat, err = storage.Stat(ctx, file)
 									if err == nil {
 										if stat.IsDir || !dirOnly {
 											existFile = true
@@ -272,7 +283,7 @@ var (
 								}
 							}
 
-							files, err := storage.List(file)
+							files, err := hbgstorage.ListAll(ctx, storage, file)
 							if err != nil {
 								// log.Fatal(err)
 							}
@@ -298,12 +309,14 @@ var (
 						file = strings.TrimSpace(spl[1])
 					}
 
-					for _, storage := range storages {
-						file = strings.TrimSpace(strings.TrimPrefix(file, storage.Name()+":"))
+					for _, name := range storages.names() {
+						file = strings.TrimSpace(strings.TrimPrefix(file, name+":"))
 					}
 
 					childItems := []string{}
-					for _, storage := range storages {
+					// 補完候補は、すでに組み立て済みのストレージからだけ集める。
+					// 補完のために未使用のクラウドへ接続しにいくのは避ける。
+					for _, storage := range storages.opened() {
 						for _, file := range listFilesFunc(storage, false)(file) {
 							filename := storage.Name() + ":" + file
 							if len(spl) == 2 {
@@ -317,12 +330,8 @@ var (
 				}
 
 				listStorages := func(_ string) []string {
-					storageNames := []string{}
-					for _, storage := range storages {
-						storageNames = append(storageNames, storage.Name())
-					}
-					sort.Slice(storageNames, func(i, j int) bool { return storageNames[i] < storageNames[j] })
-					return storageNames
+					// 名前の一覧は組み立てずに取れる
+					return storages.names()
 				}
 
 				completer := readline.NewPrefixCompleter(
@@ -358,7 +367,7 @@ var (
 				if strings.HasPrefix(line, "ls") {
 					spl := strings.SplitN(line, " ", 2)
 					if len(spl) == 1 {
-						err := list(currentStorage, currentPath, true, true)
+						err := list(ctx, currentStorage, currentPath, true, true)
 						if err != nil {
 							fmt.Println(err.Error())
 							continue Loop
@@ -371,7 +380,7 @@ var (
 							continue Loop
 						}
 
-						err = list(currentStorage, dir, true, true)
+						err = list(ctx, currentStorage, dir, true, true)
 						if err != nil {
 							fmt.Println(err.Error())
 							continue Loop
@@ -400,19 +409,21 @@ var (
 					spl := strings.SplitN(line, " ", 2)
 					if len(spl) != 1 {
 						storageName := spl[1]
-						for _, storage := range storages {
-							if storage.Name() == storageName {
-								currentStorage = storage
-								continue Loop
-							}
+						// ここで初めて対象のストレージが組み立てられる
+						s, err := storages.get(storageName)
+						if err != nil {
+							fmt.Println(err.Error())
+							continue Loop
 						}
+						currentStorage = s
+						continue Loop
 					}
 				}
 				if strings.HasPrefix(line, "rm") {
 					spl := strings.SplitN(line, " ", 2)
 					if len(spl) != 1 {
 						target := spl[1]
-						err := currentStorage.Delete(target)
+						err := remove(ctx, currentStorage, target)
 						if err != nil {
 							fmt.Println(err.Error())
 							continue Loop
@@ -437,8 +448,16 @@ var (
 							continue Loop
 						}
 
-						srcStorage := storages[srcSpl[0]]
-						destStorage := storages[destSpl[0]]
+						srcStorage, err := storages.get(srcSpl[0])
+						if err != nil {
+							fmt.Println(err.Error())
+							continue Loop
+						}
+						destStorage, err := storages.get(destSpl[0])
+						if err != nil {
+							fmt.Println(err.Error())
+							continue Loop
+						}
 						srcPath := srcSpl[1]
 						destPath := destSpl[1]
 						// もとは空のスライスに //TODO と書かれており、
@@ -459,7 +478,7 @@ var (
 
 						// もとは戻り値を捨てており、コピーに失敗しても
 						// シェル上には何も表示されなかった。
-						result, err := copyTree(srcStorage, destStorage, srcPath, destPath, time.Second, ignores, 1)
+						result, err := copyTree(ctx, srcStorage, destStorage, srcPath, destPath, time.Second, ignores, 1)
 						if err != nil {
 							fmt.Println(err.Error())
 							continue Loop

@@ -17,6 +17,9 @@ const legacyConfigName = "hbg_config.yaml"
 var errConfigNotFound = errors.New("設定ファイルが見つかりません")
 
 // defaultConfigYAML は hbg config init が書き出す設定ファイルの内容です。
+//
+// ストレージの部分は、登録されているバックエンドから組み立てます。
+// 新しい種別を足しても、ここを書き換える必要はありません。
 func defaultConfigYAML() string {
 	return `# hbg の設定ファイル
 #
@@ -24,19 +27,13 @@ func defaultConfigYAML() string {
 #   hbg copy local:C:/photos dropbox:/backup
 #
 # 同じ種類のストレージに別々の名前を与えると、複数アカウントを使い分けられます。
+# 使わないストレージの項目は削除するかコメントアウトしてください。
+# クラウドは初回に hbg auth login <名前> で認証してください。
 
 # 同時処理数。copy の -w で上書きできます。
 DefaultWorker: 2
 
-Local:
-  name: local
-
-Dropbox:
-  - name: dropbox
-
-# GoogleDrive:
-#   - name: googledrive
-`
+` + defaultConfigFromDescriptors()
 }
 
 // configSearchPaths は設定ファイルを探す場所を、優先度の高い順に返します。

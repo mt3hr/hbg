@@ -6,6 +6,10 @@ import (
 	"os"
 
 	"github.com/mt3hr/hbg"
+	"github.com/mt3hr/hbg/backend"
+	"github.com/mt3hr/hbg/backend/dropbox"
+	"github.com/mt3hr/hbg/backend/googledrive"
+	"github.com/mt3hr/hbg/backend/local"
 	"github.com/spf13/cobra"
 )
 
@@ -91,15 +95,19 @@ type DropboxConfig struct {
 	Token       string `mapstructure:"token"`
 }
 
-func (c DropboxConfig) toStorageConfig() hbg.DropboxConfig {
-	token := c.AccessToken
-	if token == "" {
-		token = c.Token
+// accessToken は access_token と、後方互換の token のどちらかを返します。
+func (c DropboxConfig) accessToken() string {
+	if c.AccessToken != "" {
+		return c.AccessToken
 	}
+	return c.Token
+}
+
+func (c DropboxConfig) toStorageConfig() hbg.DropboxConfig {
 	return hbg.DropboxConfig{
 		Name:        c.Name,
 		AppKey:      os.ExpandEnv(c.AppKey),
-		AccessToken: os.ExpandEnv(token),
+		AccessToken: os.ExpandEnv(c.accessToken()),
 	}
 }
 
@@ -177,36 +185,46 @@ func init() {
 	rootPf.StringVar(&rootOpt.configfile, "config_file", "", "設定ファイルのパス")
 }
 
-func storageMapFromConfig(c *Config) (map[string]hbg.Storage, error) {
-	storages := map[string]hbg.Storage{}
+// resolverFromConfig は設定からストレージの解決器を作ります。
+//
+// ここではストレージを組み立てません。名前の重複や知らない種別は
+// 検出しますが、接続や認証は実際に使われるまで行いません。
+//
+// 以前はどのコマンドでも設定にあるすべてのストレージを構築しており、
+// ローカルのファイルを一覧するだけでクラウドの認証が走っていました。
+func resolverFromConfig(c *Config) (*backend.Resolver, error) {
+	entries := []backend.Entry{}
 
-	// localの読み込み
-	storages[c.Local.Name] = hbg.NewLocalFileSystem(c.Local.Name)
-
-	// dropboxの読み込み
-	for _, dbxCfg := range c.Dropbox {
-		if _, exist := storages[dbxCfg.Name]; exist {
-			return nil, fmt.Errorf("ストレージ名が重複しています: '%s'", dbxCfg.Name)
-		}
-		dropbox, err := hbg.NewDropbox(dbxCfg.toStorageConfig())
-		if err != nil {
-			return nil, err
-		}
-		storages[dbxCfg.Name] = dropbox
+	if c.Local.Name != "" {
+		entries = append(entries, backend.Entry{
+			Name: c.Local.Name,
+			Type: local.Type,
+		})
 	}
 
-	// googledriveの読み込み
-	for _, gdvCfg := range c.GoogleDrive {
-		if _, exist := storages[gdvCfg.Name]; exist {
-			return nil, fmt.Errorf("ストレージ名が重複しています: '%s'", gdvCfg.Name)
-		}
-		googleDrive, err := hbg.NewGoogleDrive(gdvCfg.toStorageConfig())
-		if err != nil {
-			return nil, err
-		}
-		storages[gdvCfg.Name] = googleDrive
+	for _, cfg := range c.Dropbox {
+		entries = append(entries, backend.Entry{
+			Name: cfg.Name,
+			Type: dropbox.Type,
+			Params: backend.Params{
+				"app_key":      os.ExpandEnv(cfg.AppKey),
+				"access_token": os.ExpandEnv(cfg.accessToken()),
+			},
+		})
 	}
-	return storages, nil
+
+	for _, cfg := range c.GoogleDrive {
+		entries = append(entries, backend.Entry{
+			Name: cfg.Name,
+			Type: googledrive.Type,
+			Params: backend.Params{
+				"client_id":     os.ExpandEnv(cfg.ClientID),
+				"client_secret": os.ExpandEnv(cfg.ClientSecret),
+			},
+		})
+	}
+
+	return backend.NewResolver(entries)
 }
 
 // skipConfigLoadAnnotation が付いたコマンドは、設定ファイルを読み込まずに実行します。

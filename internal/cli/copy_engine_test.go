@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"io"
 	"os"
 	"path/filepath"
@@ -8,15 +9,19 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mt3hr/hbg"
+	"github.com/mt3hr/hbg/backend/local"
+	"github.com/mt3hr/hbg/storage"
 )
 
 // newTestLocalStorage はテスト用の一時ディレクトリと local ストレージを返します。
-func newTestLocalStorage(t *testing.T) (hbg.Storage, string) {
+func newTestLocalStorage(t *testing.T) (storage.Storage, string) {
 	t.Helper()
 	dir := filepath.ToSlash(t.TempDir())
-	return hbg.NewLocalFileSystem("local"), dir
+	return local.New("local"), dir
 }
+
+// ctx はテスト用の context です。
+var ctx = context.Background()
 
 // writeFile はテスト用にファイルを作ります。
 func writeFile(t *testing.T, path, content string) {
@@ -50,7 +55,7 @@ func TestCopyTree(t *testing.T) {
 		writeFile(t, root+"/src/sub/b.txt", "b")
 		writeFile(t, root+"/src/sub/deep/c.txt", "c")
 
-		result, err := copyTree(storage, storage, root+"/src", root+"/dst", time.Second, nil, 2)
+		result, err := copyTree(ctx, storage, storage, root+"/src", root+"/dst", time.Second, nil, 2)
 		if err != nil {
 			t.Fatalf("copyTree: %v", err)
 		}
@@ -81,7 +86,7 @@ func TestCopyTree(t *testing.T) {
 		}
 		writeFile(t, root+"/src/a.txt", "a")
 
-		result, err := copyTree(storage, storage, root+"/src", root+"/dst", time.Second, nil, 1)
+		result, err := copyTree(ctx, storage, storage, root+"/src", root+"/dst", time.Second, nil, 1)
 		if err != nil {
 			t.Fatalf("copyTree: %v", err)
 		}
@@ -106,7 +111,7 @@ func TestCopyTree(t *testing.T) {
 			t.Fatalf("mkdir: %v", err)
 		}
 
-		result, err := copyTree(storage, storage, root+"/empty", root+"/dst", time.Second, nil, 1)
+		result, err := copyTree(ctx, storage, storage, root+"/empty", root+"/dst", time.Second, nil, 1)
 		if err != nil {
 			t.Fatalf("copyTree: %v", err)
 		}
@@ -121,7 +126,7 @@ func TestCopyTree(t *testing.T) {
 		t.Parallel()
 		storage, root := newTestLocalStorage(t)
 
-		_, err := copyTree(storage, storage, root+"/nonexistent", root+"/dst", time.Second, nil, 1)
+		_, err := copyTree(ctx, storage, storage, root+"/nonexistent", root+"/dst", time.Second, nil, 1)
 		if err == nil {
 			t.Fatal("コピー元が存在しないのにエラーにならなかった")
 		}
@@ -140,7 +145,7 @@ func TestCopyTree(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
 			defer close(done)
-			if _, err := copyTree(storage, storage, root+"/src", root+"/dst", time.Second, nil, 0); err != nil {
+			if _, err := copyTree(ctx, storage, storage, root+"/src", root+"/dst", time.Second, nil, 0); err != nil {
 				t.Errorf("copyTree: %v", err)
 			}
 		}()
@@ -157,7 +162,7 @@ func TestCopyTree(t *testing.T) {
 		storage, root := newTestLocalStorage(t)
 		writeFile(t, root+"/src/a.txt", "a")
 
-		first, err := copyTree(storage, storage, root+"/src", root+"/dst", time.Second, nil, 1)
+		first, err := copyTree(ctx, storage, storage, root+"/src", root+"/dst", time.Second, nil, 1)
 		if err != nil {
 			t.Fatalf("1回目: %v", err)
 		}
@@ -165,7 +170,7 @@ func TestCopyTree(t *testing.T) {
 			t.Fatalf("1回目 Transferred=%d, want 1", first.Transferred)
 		}
 
-		second, err := copyTree(storage, storage, root+"/src", root+"/dst", time.Second, nil, 1)
+		second, err := copyTree(ctx, storage, storage, root+"/src", root+"/dst", time.Second, nil, 1)
 		if err != nil {
 			t.Fatalf("2回目: %v", err)
 		}
@@ -180,7 +185,7 @@ func TestCopyTree(t *testing.T) {
 		writeFile(t, root+"/src/a.txt", "a")
 		writeFile(t, root+"/src/Thumbs.db", "x")
 
-		result, err := copyTree(storage, storage, root+"/src", root+"/dst", time.Second, defaultIgnores, 1)
+		result, err := copyTree(ctx, storage, storage, root+"/src", root+"/dst", time.Second, defaultIgnores, 1)
 		if err != nil {
 			t.Fatalf("copyTree: %v", err)
 		}
@@ -202,7 +207,7 @@ func TestCopyTree(t *testing.T) {
 			t.Fatalf("chtimes: %v", err)
 		}
 
-		if _, err := copyTree(storage, storage, root+"/src", root+"/dst", time.Second, nil, 1); err != nil {
+		if _, err := copyTree(ctx, storage, storage, root+"/src", root+"/dst", time.Second, nil, 1); err != nil {
 			t.Fatalf("copyTree: %v", err)
 		}
 

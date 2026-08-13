@@ -432,3 +432,86 @@ func TestFlowUsesRedirectHost(t *testing.T) {
 		t.Errorf("redirect_uri = %q, localhost であるべき", redirectURI)
 	}
 }
+
+// トークン交換の要求が、シークレットを持たない公開クライアントの
+// 形になっていることを確かめます。
+//
+// Dropbox の PKCE フローは、client_secret を送らないこと・authorize と
+// 同じ redirect_uri を送ること・code_verifier を送ることを要求します。
+// どれが欠けても認可画面は通ったあとで交換だけが失敗し、
+// 「認可コードからトークンを取得できませんでした」としか分かりません。
+func TestExchangeRequestIsPublicClientPKCE(t *testing.T) {
+	var form url.Values
+	var authHeader string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseForm(); err != nil {
+			http.Error(w, "bad form", http.StatusBadRequest)
+			return
+		}
+		form = r.Form
+		authHeader = r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `{"access_token":"a","refresh_token":"r","token_type":"Bearer","expires_in":3600}`)
+	}))
+	defer srv.Close()
+
+	cfg := DropboxOAuth2Config(ClientCredentials{ClientID: "APPKEY"})
+	cfg.Endpoint = oauth2.Endpoint{
+		AuthURL:   srv.URL + "/authorize",
+		TokenURL:  srv.URL + "/token",
+		AuthStyle: oauth2.AuthStyleInParams,
+	}
+
+	var authorizeRedirect string
+	flow := &Flow{
+		Config:               cfg,
+		UsePKCE:              true,
+		RedirectHost:         DropboxRedirectHost,
+		ExtraAuthCodeOptions: DropboxAuthCodeOptions(),
+		Timeout:              10 * time.Second,
+		Prompt: func(authURL string) {
+			u, err := url.Parse(authURL)
+			if err != nil {
+				t.Errorf("認可URLを解釈できない: %v", err)
+				return
+			}
+			authorizeRedirect = u.Query().Get("redirect_uri")
+			go func() {
+				redirect, _ := url.Parse(authorizeRedirect)
+				q := redirect.Query()
+				q.Set("code", "CODE")
+				q.Set("state", u.Query().Get("state"))
+				redirect.RawQuery = q.Encode()
+				resp, err := http.Get(redirect.String())
+				if err == nil {
+					resp.Body.Close()
+				}
+			}()
+		},
+	}
+	if _, err := flow.Run(context.Background()); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	// シークレットは持たない。Basic 認証も使わない。
+	if got := form.Get("client_secret"); got != "" {
+		t.Errorf("client_secret が送られている: %q", got)
+	}
+	if authHeader != "" {
+		t.Errorf("Authorization ヘッダが送られている: %q", authHeader)
+	}
+	if got := form.Get("client_id"); got != "APPKEY" {
+		t.Errorf("client_id = %q", got)
+	}
+	// PKCE の検証子。無いと交換だけが失敗する。
+	if form.Get("code_verifier") == "" {
+		t.Error("code_verifier が送られていない")
+	}
+	// redirect_uri は authorize と1文字も違ってはならない。
+	if got := form.Get("redirect_uri"); got != authorizeRedirect {
+		t.Errorf("redirect_uri = %q, authorize では %q", got, authorizeRedirect)
+	}
+	if got := form.Get("grant_type"); got != "authorization_code" {
+		t.Errorf("grant_type = %q", got)
+	}
+}

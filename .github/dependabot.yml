@@ -1,0 +1,29 @@
+version: 2
+
+updates:
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      # 細かい PR が乱立しないよう、関連するものはまとめる。
+      golang-x:
+        patterns:
+          - "golang.org/x/*"
+      google-api:
+        patterns:
+          - "google.golang.org/*"
+          - "cloud.google.com/*"
+      spf13:
+        patterns:
+          - "github.com/spf13/*"
+    commit-message:
+      prefix: "deps"
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "ci"

@@ -32,7 +32,7 @@ func (l *localFileSystem) List(path string) ([]*FileInfo, error) {
 	for _, file := range files {
 		stat, err := os.Stat(filepath.Join(path, file.Name()))
 		if err != nil {
-			err = fmt.Errorf("error at get stat %s: %w", file.Name, err)
+			err = fmt.Errorf("error at get stat %s: %w", file.Name(), err)
 			return nil, err
 		}
 

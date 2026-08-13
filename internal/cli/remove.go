@@ -1,10 +1,11 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
-	"github.com/mt3hr/hbg"
+	"github.com/mt3hr/hbg/storage"
 	"github.com/spf13/cobra"
 )
 
@@ -33,23 +34,28 @@ var (
 	}{}
 )
 
-func runRemove(_ *cobra.Command, _ []string) error {
-	storages, err := storageMapFromConfig(config)
+func runRemove(cmd *cobra.Command, _ []string) error {
+	ctx := cmd.Context()
+
+	resolver, err := resolverFromConfig(config)
 	if err != nil {
-		return fmt.Errorf("load storage failed. %w", err)
+		return withExitCode(ExitUsage, err)
 	}
-	storage, exist := storages[removeOpt.targetStorage]
-	if !exist {
-		return withExitCode(ExitUsage, fmt.Errorf("not found storage '%s'", removeOpt.targetStorage))
+	defer resolver.Close()
+
+	s, err := resolver.Get(ctx, removeOpt.targetStorage)
+	if err != nil {
+		return withExitCode(ExitUsage, err)
 	}
-	return remove(storage, removeOpt.targetPath)
+	return remove(ctx, s, removeOpt.targetPath)
 }
 
-func remove(storage hbg.Storage, path string) error {
+// remove は指定されたパスを中身ごと削除します。
+func remove(ctx context.Context, s storage.Storage, path string) error {
 	// もとはエラーメッセージに引数の path ではなく
-	// removeOpt.targetPath を使っていたため、シェルなど
-	// 別経路から呼んだときに誤ったパスが表示されていた。
-	if err := storage.Delete(path); err != nil {
+	// パッケージ変数を使っていたため、シェルなど別経路から
+	// 呼んだときに誤ったパスが表示されていた。
+	if err := storage.PurgeAll(ctx, s, path); err != nil {
 		return fmt.Errorf("error at delete %s. %w", path, err)
 	}
 	return nil

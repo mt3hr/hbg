@@ -1,15 +1,15 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"os"
-	"sort"
 	"strconv"
 	"strings"
 	"text/tabwriter"
 	"time"
 
-	"github.com/mt3hr/hbg"
+	"github.com/mt3hr/hbg/storage"
 	"github.com/spf13/cobra"
 )
 
@@ -102,40 +102,32 @@ func formatSizeWithUnit(size, unit int64, suffix string) string {
 	return strconv.FormatInt(whole, 10) + "." + strconv.FormatInt(frac, 10) + suffix
 }
 
-func runList(_ *cobra.Command, _ []string) error {
-	storages, err := storageMapFromConfig(config)
+func runList(cmd *cobra.Command, _ []string) error {
+	ctx := cmd.Context()
+
+	resolver, err := resolverFromConfig(config)
 	if err != nil {
-		return fmt.Errorf("load storage failed. %w", err)
+		return withExitCode(ExitUsage, err)
 	}
-	storage, exist := storages[listOpt.targetStorage]
-	if !exist {
-		return withExitCode(ExitUsage, fmt.Errorf("not found storage '%s'", listOpt.targetStorage))
+	defer resolver.Close()
+
+	// ここで初めて、対象のストレージだけが組み立てられる。
+	s, err := resolver.Get(ctx, listOpt.targetStorage)
+	if err != nil {
+		return withExitCode(ExitUsage, err)
 	}
-	return list(storage, listOpt.targetPath, listOpt.long, listOpt.humanReadable)
+	return list(ctx, s, listOpt.targetPath, listOpt.long, listOpt.humanReadable)
 }
 
-func list(storage hbg.Storage, path string, long, humanReadable bool) error {
-	fileAndDirs, err := storage.List(path)
+func list(ctx context.Context, s storage.Storage, path string, long, humanReadable bool) error {
+	entries, err := storage.ListAllSorted(ctx, s, path)
 	if err != nil {
-		err = fmt.Errorf("error at list at %s. %w", path, err)
-		return err
+		return fmt.Errorf("error at list at %s. %w", path, err)
 	}
-
-	files, dirs := []*hbg.FileInfo{}, []*hbg.FileInfo{}
-	for _, f := range fileAndDirs {
-		if f.IsDir {
-			dirs = append(dirs, f)
-		} else {
-			files = append(files, f)
-		}
-	}
-	sort.Slice(files, func(i, j int) bool { return files[i].Name < files[j].Name })
-	sort.Slice(dirs, func(i, j int) bool { return dirs[i].Name < dirs[j].Name })
-	fileAndDirs = append(dirs, files...)
 
 	w := &tabwriter.Writer{}
 	w.Init(os.Stdout, 0, 8, 1, '\t', tabwriter.AlignRight)
-	for _, file := range fileAndDirs {
+	for _, file := range entries {
 		isDir := ""
 		timestr := ""
 		sizestr := ""
@@ -143,7 +135,7 @@ func list(storage hbg.Storage, path string, long, humanReadable bool) error {
 			isDir = "dir"
 		} else {
 			isDir = "file"
-			timestr = file.LastMod.Format(time.RFC3339)
+			timestr = file.ModTime.Format(time.RFC3339)
 
 			if humanReadable {
 				sizestr = humanReadableSize(file.Size)
@@ -154,11 +146,7 @@ func list(storage hbg.Storage, path string, long, humanReadable bool) error {
 
 		fmt.Fprintf(w, "%s", file.Name)
 		if long {
-			fmt.Fprintf(w, "\t%s\t%s\t%s",
-				isDir,
-				timestr,
-				sizestr,
-			)
+			fmt.Fprintf(w, "\t%s\t%s\t%s", isDir, timestr, sizestr)
 		}
 		fmt.Fprintf(w, "\n")
 	}

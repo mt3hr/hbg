@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mt3hr/hbg"
+	"github.com/mt3hr/hbg/storage"
 )
 
 // shouldSkipCopy の挙動を固定する回帰テスト。
@@ -18,14 +18,14 @@ func TestShouldSkipCopy(t *testing.T) {
 
 	base := time.Date(2024, 5, 1, 12, 0, 0, 0, time.UTC)
 
-	src := func(name string, size int64, mod time.Time) *hbg.FileInfo {
-		return &hbg.FileInfo{Name: name, Size: size, LastMod: mod}
+	src := func(name string, size int64, mod time.Time) storage.FileInfo {
+		return storage.FileInfo{Name: name, Size: size, ModTime: mod}
 	}
 
 	tests := []struct {
 		name           string
-		src            *hbg.FileInfo
-		dest           []*hbg.FileInfo
+		src            storage.FileInfo
+		dest           []storage.FileInfo
 		updateDuration time.Duration
 		want           bool
 		why            string
@@ -40,21 +40,21 @@ func TestShouldSkipCopy(t *testing.T) {
 		{
 			name:           "同名・同サイズ・同時刻ならスキップする",
 			src:            src("a.txt", 100, base),
-			dest:           []*hbg.FileInfo{src("a.txt", 100, base)},
+			dest:           []storage.FileInfo{src("a.txt", 100, base)},
 			updateDuration: time.Second,
 			want:           true,
 		},
 		{
 			name:           "名前が違えばスキップしない",
 			src:            src("a.txt", 100, base),
-			dest:           []*hbg.FileInfo{src("b.txt", 100, base)},
+			dest:           []storage.FileInfo{src("b.txt", 100, base)},
 			updateDuration: time.Second,
 			want:           false,
 		},
 		{
 			name:           "サイズが違えばスキップしない",
 			src:            src("a.txt", 100, base),
-			dest:           []*hbg.FileInfo{src("a.txt", 101, base)},
+			dest:           []storage.FileInfo{src("a.txt", 101, base)},
 			updateDuration: time.Second,
 			want:           false,
 			why:            "同時刻でもサイズが違えば転送する。破損検知の役割も兼ねている",
@@ -62,7 +62,7 @@ func TestShouldSkipCopy(t *testing.T) {
 		{
 			name:           "時刻差が更新期間ちょうどならスキップする（境界・以下）",
 			src:            src("a.txt", 100, base.Add(time.Second)),
-			dest:           []*hbg.FileInfo{src("a.txt", 100, base)},
+			dest:           []storage.FileInfo{src("a.txt", 100, base)},
 			updateDuration: time.Second,
 			want:           true,
 			why:            "比較は d <= updateDuration なので境界は含む",
@@ -70,21 +70,21 @@ func TestShouldSkipCopy(t *testing.T) {
 		{
 			name:           "時刻差が更新期間を1ナノ秒でも超えればスキップしない",
 			src:            src("a.txt", 100, base.Add(time.Second+time.Nanosecond)),
-			dest:           []*hbg.FileInfo{src("a.txt", 100, base)},
+			dest:           []storage.FileInfo{src("a.txt", 100, base)},
 			updateDuration: time.Second,
 			want:           false,
 		},
 		{
 			name:           "コピー先のほうが新しくても、差が更新期間内ならスキップする",
 			src:            src("a.txt", 100, base),
-			dest:           []*hbg.FileInfo{src("a.txt", 100, base.Add(time.Second))},
+			dest:           []storage.FileInfo{src("a.txt", 100, base.Add(time.Second))},
 			updateDuration: time.Second,
 			want:           true,
 		},
 		{
 			name:           "コピー先のほうが新しく、差が更新期間を超えるとスキップしない（＝上書きする）",
 			src:            src("a.txt", 100, base),
-			dest:           []*hbg.FileInfo{src("a.txt", 100, base.Add(time.Hour))},
+			dest:           []storage.FileInfo{src("a.txt", 100, base.Add(time.Hour))},
 			updateDuration: time.Second,
 			want:           false,
 			why: "時刻差を絶対値で見ているため、コピー先が新しくても古いファイルで上書きしてしまう。" +
@@ -93,7 +93,7 @@ func TestShouldSkipCopy(t *testing.T) {
 		{
 			name: "タイムゾーンが違っても同一時刻ならスキップする",
 			src:  src("a.txt", 100, base),
-			dest: []*hbg.FileInfo{
+			dest: []storage.FileInfo{
 				src("a.txt", 100, base.In(time.FixedZone("JST", 9*60*60))),
 			},
 			updateDuration: time.Second,
@@ -103,7 +103,7 @@ func TestShouldSkipCopy(t *testing.T) {
 		{
 			name: "同名が複数あるとき、どれか1つでも条件を満たせばスキップする",
 			src:  src("a.txt", 100, base),
-			dest: []*hbg.FileInfo{
+			dest: []storage.FileInfo{
 				src("a.txt", 999, base),
 				src("a.txt", 100, base),
 			},
@@ -114,28 +114,28 @@ func TestShouldSkipCopy(t *testing.T) {
 		{
 			name:           "更新期間0なら完全一致した時刻のみスキップする",
 			src:            src("a.txt", 100, base),
-			dest:           []*hbg.FileInfo{src("a.txt", 100, base)},
+			dest:           []storage.FileInfo{src("a.txt", 100, base)},
 			updateDuration: 0,
 			want:           true,
 		},
 		{
 			name:           "更新期間0で1ナノ秒でもずれればスキップしない",
 			src:            src("a.txt", 100, base.Add(time.Nanosecond)),
-			dest:           []*hbg.FileInfo{src("a.txt", 100, base)},
+			dest:           []storage.FileInfo{src("a.txt", 100, base)},
 			updateDuration: 0,
 			want:           false,
 		},
 		{
 			name:           "サイズ0同士でもスキップ判定は働く",
 			src:            src("empty.txt", 0, base),
-			dest:           []*hbg.FileInfo{src("empty.txt", 0, base)},
+			dest:           []storage.FileInfo{src("empty.txt", 0, base)},
 			updateDuration: time.Second,
 			want:           true,
 		},
 		{
 			name:           "FAT の2秒粒度は既定の1秒では吸収できない",
 			src:            src("a.txt", 100, base.Add(2*time.Second)),
-			dest:           []*hbg.FileInfo{src("a.txt", 100, base)},
+			dest:           []storage.FileInfo{src("a.txt", 100, base)},
 			updateDuration: time.Second,
 			want:           false,
 			why:            "--update_duration 2s を指定しないと毎回再転送になる",
@@ -143,7 +143,7 @@ func TestShouldSkipCopy(t *testing.T) {
 		{
 			name:           "更新期間を2秒にすればFATの粒度を吸収できる",
 			src:            src("a.txt", 100, base.Add(2*time.Second)),
-			dest:           []*hbg.FileInfo{src("a.txt", 100, base)},
+			dest:           []storage.FileInfo{src("a.txt", 100, base)},
 			updateDuration: 2 * time.Second,
 			want:           true,
 		},
@@ -166,7 +166,7 @@ func TestShouldSkipCopy(t *testing.T) {
 func TestGlob(t *testing.T) {
 	t.Parallel()
 
-	files := []*hbg.FileInfo{
+	files := []storage.FileInfo{
 		{Name: "a.txt", Path: "/data/a.txt"},
 		{Name: "b.txt", Path: "/data/b.txt"},
 		{Name: "c.jpg", Path: "/data/c.jpg"},
@@ -217,6 +217,6 @@ func TestGlobPanicsOnMalformedPattern(t *testing.T) {
 		}
 	}()
 
-	files := []*hbg.FileInfo{{Name: "a[.txt", Path: "/data/a[.txt"}}
+	files := []storage.FileInfo{{Name: "a[.txt", Path: "/data/a[.txt"}}
 	_, _ = glob(files, "/data/a[.txt")
 }

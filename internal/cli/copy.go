@@ -12,6 +12,7 @@ import (
 
 	glb "github.com/gobwas/glob"
 	"github.com/mt3hr/hbg"
+	"github.com/mt3hr/hbg/internal/hbglog"
 	"github.com/spf13/cobra"
 )
 
@@ -157,6 +158,7 @@ const maxReportedErrors = 20
 type copyResult struct {
 	Transferred int
 	Failed      int
+	Elapsed     time.Duration
 	// Errors は表示用に保持する失敗の詳細です。
 	// maxReportedErrors 件で打ち切られます。
 	Errors []error
@@ -164,7 +166,11 @@ type copyResult struct {
 
 // writeSummary は結果の要約を書き出します。
 func (r *copyResult) writeSummary(w io.Writer) {
-	fmt.Fprintf(w, "\nコピー完了: %d件成功, %d件失敗\n", r.Transferred, r.Failed)
+	fmt.Fprintf(w, "\nコピー完了: %d件成功, %d件失敗", r.Transferred, r.Failed)
+	if r.Elapsed > 0 {
+		fmt.Fprintf(w, " (%s)", r.Elapsed.Round(time.Millisecond))
+	}
+	fmt.Fprintln(w)
 	if len(r.Errors) == 0 {
 		return
 	}
@@ -223,6 +229,7 @@ func copyTree(srcStorage, destStorage hbg.Storage, srcPath, destDirPath string, 
 	fmt.Printf("%dつのファイルのコピーを開始します\n", len(copyFileArgs))
 
 	// コピーする
+	started := time.Now()
 	result := &copyResult{}
 	mu := &sync.Mutex{}
 	copyQ := make(chan *copyFileArg, worker)
@@ -232,7 +239,26 @@ func copyTree(srcStorage, destStorage hbg.Storage, srcPath, destDirPath string, 
 		go func() {
 			defer copyWG.Done()
 			for arg := range copyQ {
-				err := copyFile(arg.srcStorage, arg.destStorage, arg.srcFilePath, arg.destDirPath)
+				fileStarted := time.Now()
+				bytes, err := copyFile(arg.srcStorage, arg.destStorage, arg.srcFilePath, arg.destDirPath)
+				elapsed := time.Since(fileStarted)
+
+				// 端末の表示とは独立して、転送1件につき1レコードを記録する。
+				// あとから「どのファイルが失敗したか」を追えるようにするため。
+				rec := hbglog.TransferRecord{
+					SrcStorage: arg.srcStorage.Type(),
+					SrcPath:    arg.srcFilePath,
+					DstStorage: arg.destStorage.Type(),
+					DstPath:    arg.destDirPath,
+					Bytes:      bytes,
+					Duration:   elapsed,
+					Result:     hbglog.ResultCopied,
+					Err:        err,
+				}
+				if err != nil {
+					rec.Result = hbglog.ResultFailed
+				}
+				hbglog.LogTransfer(rec)
 
 				mu.Lock()
 				if err != nil {
@@ -255,6 +281,8 @@ func copyTree(srcStorage, destStorage hbg.Storage, srcPath, destDirPath string, 
 	close(copyQ)
 	copyWG.Wait()
 
+	result.Elapsed = time.Since(started)
+	hbglog.LogSummary(result.Transferred, result.Failed, result.Elapsed)
 	return result, nil
 }
 
@@ -443,18 +471,18 @@ type copyFileArg struct {
 	destDirPath string
 }
 
-func copyFile(srcStorage, destStorage hbg.Storage, srcFilePath, destDirPath string) error {
+// copyFile は1ファイルをコピーし、転送したバイト数を返します。
+func copyFile(srcStorage, destStorage hbg.Storage, srcFilePath, destDirPath string) (int64, error) {
 	fmt.Printf("copy %s:%s -> %s:%s\n", srcStorage.Type(), srcFilePath, destStorage.Type(), destDirPath)
+
 	file, err := srcStorage.Get(srcFilePath)
 	if err != nil {
-		err = fmt.Errorf("error at get %s:%s : %w", srcStorage.Type(), srcFilePath, err)
-		return err
+		return 0, fmt.Errorf("error at get %s:%s : %w", srcStorage.Type(), srcFilePath, err)
 	}
 	defer file.Data.Close()
-	err = destStorage.Push(destDirPath, file)
-	if err != nil {
-		err = fmt.Errorf("error at push from %s:%s to %s:%s : %w", srcStorage.Type(), srcFilePath, destStorage.Type(), destDirPath, err)
-		return err
+
+	if err := destStorage.Push(destDirPath, file); err != nil {
+		return 0, fmt.Errorf("error at push from %s:%s to %s:%s : %w", srcStorage.Type(), srcFilePath, destStorage.Type(), destDirPath, err)
 	}
-	return nil
+	return file.Size, nil
 }

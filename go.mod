@@ -10,6 +10,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.107.1
 	github.com/aws/smithy-go v1.27.7
 	github.com/chzyer/readline v1.5.1
+	github.com/cloudsoda/go-smb2 v0.0.0-20260803221621-0b399b9d036c
 	github.com/dropbox/dropbox-sdk-go-unofficial/v6 v6.6.0
 	github.com/gobwas/glob v0.2.3
 	github.com/pkg/sftp v1.13.11
@@ -20,6 +21,7 @@ require (
 	github.com/spf13/viper v1.21.0
 	github.com/vbauerster/mpb/v8 v8.15.2
 	golang.org/x/crypto v0.55.0
+	golang.org/x/net v0.57.0
 	golang.org/x/oauth2 v0.36.0
 	golang.org/x/sync v0.22.0
 	golang.org/x/term v0.45.0
@@ -48,7 +50,6 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/sts v1.45.5 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/clipperhouse/uax29/v2 v2.7.0 // indirect
-	github.com/cloudsoda/go-smb2 v0.0.0-20260803221621-0b399b9d036c // indirect
 	github.com/cloudsoda/sddl v0.0.0-20250224235906-926454e91efc // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
 	github.com/fsnotify/fsnotify v1.10.1 // indirect
@@ -81,7 +82,6 @@ require (
 	go.opentelemetry.io/otel/metric v1.44.0 // indirect
 	go.opentelemetry.io/otel/trace v1.44.0 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
-	golang.org/x/net v0.57.0 // indirect
 	golang.org/x/sys v0.47.0 // indirect
 	golang.org/x/text v0.41.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260807164820-c8921c73eeea // indirect

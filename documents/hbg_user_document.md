@@ -16,6 +16,26 @@ hbg copy dropbox:/hbg/test.txt local:/home/user/documents
 hbg copy -w 10 local:C:/hoge local:C:/fuga
 ```
 
+#### コピー元にワイルドカード
+
+コピー元の最後の要素にはワイルドカードを書けます。一致したものが
+コピー先の直下に入ります。
+
+```console
+hbg copy dropbox:/photos/* local:~/photos       # photos の中身を運ぶ
+hbg copy dropbox:/configs/*.db local:~/configs  # .db だけを運ぶ
+```
+
+ディレクトリをそのまま指定した場合との違いは、階層がひとつ増えるかどうかです。
+`local:C:/photos dropbox:/backup` は `dropbox:/backup/photos` に入りますが、
+`local:C:/photos/* dropbox:/backup` は `dropbox:/backup` の直下に入ります。
+
+一致するものが1つも無ければエラーになります。0件を成功にすると、
+打ち間違いがスクリプトからは成功に見えてしまうためです。
+
+`--delete` と併せては使えません。一致した起点しか見ていないので、
+コピー先のそれ以外の中身を「コピー元に無いもの」として扱えないからです。
+
 #### 何を転送するかの判断
 
 既定では、コピー先に同名のファイルがあり、**最終更新時刻の差が許容幅以内で、

@@ -99,6 +99,24 @@ func oauth2Config(cfg Config) (*oauth2.Config, error) {
 	return auth.MicrosoftOAuth2Config(creds, cfg.Tenant), nil
 }
 
+// loginFlow は認可フローを組み立てます。
+//
+// Login から切り出してあるのは、リダイレクト URI の指定が
+// アプリ登録時の案内と一致していることをテストから確かめるためです。
+func loginFlow(oauthCfg *oauth2.Config, opts auth.LoginOptions) *auth.Flow {
+	return &auth.Flow{
+		Config: oauthCfg,
+		// パブリッククライアントなので PKCE が必須です。
+		UsePKCE: true,
+		// 登録した文字列そのものを使う。ポートを大目に見てもらえるかは
+		// 提供元や登録の仕方で変わるので、当てにしない。
+		FixedPorts:   auth.MicrosoftRedirectPorts,
+		RedirectHost: auth.MicrosoftRedirectHost,
+		OpenBrowser:  opts.OpenBrowser,
+		Prompt:       opts.Prompt,
+	}
+}
+
 // Login は対話的に認可を行い、トークンを保存します。
 // hbg auth login から呼ばれます。
 func Login(ctx context.Context, cfg Config, opts auth.LoginOptions) error {
@@ -107,16 +125,7 @@ func Login(ctx context.Context, cfg Config, opts auth.LoginOptions) error {
 		return err
 	}
 
-	flow := &auth.Flow{
-		Config: oauthCfg,
-		// パブリッククライアントなので PKCE が必須です。
-		UsePKCE: true,
-		// Microsoft は 127.0.0.1 なら任意のポートを受け付けます。
-		OpenBrowser: opts.OpenBrowser,
-		Prompt:      opts.Prompt,
-	}
-
-	tok, err := flow.Run(ctx)
+	tok, err := loginFlow(oauthCfg, opts).Run(ctx)
 	if err != nil {
 		return err
 	}

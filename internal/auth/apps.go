@@ -150,6 +150,30 @@ func setupInstructions(storageType string) string {
   Google Drive の全体にアクセスする権限は「制限付きスコープ」に
   分類されており、アプリを一般公開するには年次のセキュリティ評価が
   必要です。そのため hbg では利用者自身のプロジェクトを使います。`
+
+	case "onedrive":
+		return `Microsoft のアプリを登録してください:
+
+  1. https://portal.azure.com の「アプリの登録」で新規登録
+     - サポートされているアカウントの種類:
+       個人用 Microsoft アカウントを含むもの（職場・学校と併用も可）
+  2. 「認証」でプラットフォーム
+     「モバイル アプリケーションとデスクトップ アプリケーション」を追加し、
+     リダイレクト URI に以下を登録
+` + indentLines(MicrosoftRedirectURIs(), "       ") + `
+     「パブリック クライアント フローを許可する」を「はい」にする
+  3. 「API のアクセス許可」で Microsoft Graph の委任されたアクセス許可を追加
+       offline_access  Files.ReadWrite.All  User.Read
+  4. 「概要」のアプリケーション (クライアント) ID を設定ファイルに書く
+
+       storages:
+         - name: onedrive
+           type: onedrive
+           client_id: ${HBG_MICROSOFT_CLIENT_ID}
+
+     または環境変数 HBG_MICROSOFT_CLIENT_ID に設定する。
+
+  クライアント シークレットは必要ありません（PKCE を使います）。`
 	}
 	return ""
 }

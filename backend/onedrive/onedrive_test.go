@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/mt3hr/hbg/internal/auth"
 	"github.com/mt3hr/hbg/storage"
 	"github.com/mt3hr/hbg/storage/storagetest"
 )
@@ -445,5 +447,28 @@ func TestCleanPath(t *testing.T) {
 		if got := cleanPath(in); got != want {
 			t.Errorf("cleanPath(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+// リダイレクト URI がアプリ登録時の案内と一致していることを確かめます。
+// Dropbox と同じ理由です（外れると認可画面でしか分からない）。
+func TestLoginFlowRedirectMatchesRegisteredURIs(t *testing.T) {
+	flow := loginFlow(auth.MicrosoftOAuth2Config(auth.ClientCredentials{ClientID: "id"}, ""), auth.LoginOptions{})
+
+	if flow.RedirectHost != auth.MicrosoftRedirectHost {
+		t.Errorf("RedirectHost = %q, want %q", flow.RedirectHost, auth.MicrosoftRedirectHost)
+	}
+	if len(flow.FixedPorts) == 0 {
+		t.Fatal("ポートを固定していない")
+	}
+	registered := auth.MicrosoftRedirectURIs()
+	for _, port := range flow.FixedPorts {
+		uri := auth.RedirectURI(flow.RedirectHost, port)
+		if !slices.Contains(registered, uri) {
+			t.Errorf("%s を使いうるが、登録案内に載っていない: %v", uri, registered)
+		}
+	}
+	if !flow.UsePKCE {
+		t.Error("PKCE を使っていない。パブリッククライアントでは必須")
 	}
 }

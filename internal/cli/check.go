@@ -71,6 +71,18 @@ func runCheck(cmd *cobra.Command, _ []string) error {
 
 	report := &checkReport{showAll: checkOpt.all}
 
+	// --json のときは、判断をそのまま1行1件で流す。
+	var jsonw *jsonWriter
+	onDecision := report.add
+	if copyOpt.jsonOut {
+		jsonw = newJSONWriter(os.Stdout)
+		emit := jsonw.onDecisionAll()
+		onDecision = func(ev transfer.DecisionEvent) {
+			report.add(ev)
+			emit(ev)
+		}
+	}
+
 	_, err = transfer.Run(ctx, transfer.Options{
 		Src:        srcStorage,
 		Dst:        destStorage,
@@ -83,7 +95,7 @@ func runCheck(cmd *cobra.Command, _ []string) error {
 		TPS:        copyOpt.tps,
 		DryRun:     true,
 		Reporter:   progress.NewNop(),
-		OnDecision: report.add,
+		OnDecision: onDecision,
 	})
 	if err != nil {
 		if isCanceled(err) {
@@ -92,7 +104,16 @@ func runCheck(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	report.write(os.Stdout)
+	if jsonw != nil {
+		jsonw.emit(map[string]any{
+			"type":      "summary",
+			"differing": report.differing,
+			"same":      report.same,
+			"bytes":     report.bytes,
+		})
+	} else {
+		report.write(os.Stdout)
+	}
 
 	// 差分があれば終了コードで知らせる。
 	// バックアップの確認をジョブから行えるようにするため。

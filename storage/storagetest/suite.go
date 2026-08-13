@@ -35,6 +35,15 @@ type Harness struct {
 
 	// LargeDirCount は件数の多いディレクトリの試験で作る数です。0 なら既定値。
 	LargeDirCount int
+
+	// IllegalNameChars は、試験の環境が扱えない文字です。
+	//
+	// ストレージ自身の制限ではなく、試験に使っているサーバーや
+	// ファイルシステムの都合で試せないものをここに書きます。
+	// 例えば SFTP の試験用サーバーを Windows で動かすと、
+	// ファイル名の中の "\\" がディレクトリの区切りになってしまいます。
+	// ストレージ自身の制限は Features.IllegalChars で表してください。
+	IllegalNameChars string
 }
 
 // Run は適合性テストを実行します。
@@ -365,7 +374,7 @@ func testUnusualNames(t *testing.T, h Harness) {
 		names = append(names, `逆斜線\を含む.txt`)
 	}
 
-	illegal := s.Features().IllegalChars
+	illegal := s.Features().IllegalChars + h.IllegalNameChars
 	for _, name := range names {
 		if illegal != "" && strings.ContainsAny(name, illegal) {
 			continue

@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
-	"sort"
 	"text/tabwriter"
 	"time"
 
+	"github.com/mt3hr/hbg/backend"
 	"github.com/mt3hr/hbg/backend/dropbox"
 	"github.com/mt3hr/hbg/backend/googledrive"
 	"github.com/mt3hr/hbg/internal/auth"
@@ -55,26 +55,38 @@ var authLoginCmd = &cobra.Command{
 			},
 		}
 
-		if dbxCfg, ok := findDropboxConfig(name); ok {
-			if err := dropbox.Login(ctx, dbxCfg.toStorageConfig(), opts); err != nil {
-				return authLoginError(name, err)
-			}
-			reportLoginSuccess(dropbox.Type, name)
-			return nil
+		entry, ok := findStorageEntry(config, name)
+		if !ok || !needsAuth(entry.Type) {
+			return withExitCode(ExitUsage, fmt.Errorf(
+				"設定に認証が必要なストレージ %q がありません。%s を確認してください",
+				name, mustConfigFile()))
 		}
 
-		if gdvCfg, ok := findGoogleDriveConfig(name); ok {
-			if err := googledrive.Login(ctx, gdvCfg.toStorageConfig(), opts); err != nil {
-				return authLoginError(name, err)
-			}
-			reportLoginSuccess(googledrive.Type, name)
-			return nil
+		if err := loginTo(ctx, entry, opts); err != nil {
+			return authLoginError(name, err)
 		}
-
-		return withExitCode(ExitUsage, fmt.Errorf(
-			"設定に認証が必要なストレージ %q がありません。%s を確認してください",
-			name, mustConfigFile()))
+		reportLoginSuccess(entry.Type, name)
+		return nil
 	},
+}
+
+// loginTo は種別に応じた認可を行います。
+func loginTo(ctx context.Context, entry backend.Entry, opts auth.LoginOptions) error {
+	switch entry.Type {
+	case dropbox.Type:
+		return dropbox.Login(ctx, dropbox.Config{
+			Name:        entry.Name,
+			AppKey:      entry.Params.Get("app_key"),
+			AccessToken: entry.Params.Get("access_token"),
+		}, opts)
+	case googledrive.Type:
+		return googledrive.Login(ctx, googledrive.Config{
+			Name:         entry.Name,
+			ClientID:     entry.Params.Get("client_id"),
+			ClientSecret: entry.Params.Get("client_secret"),
+		}, opts)
+	}
+	return fmt.Errorf("ストレージ %q（種別 %s）は認証を必要としません", entry.Name, entry.Type)
 }
 
 func authLoginError(name string, err error) error {
@@ -101,17 +113,17 @@ var authLogoutCmd = &cobra.Command{
 		name := args[0]
 		store := auth.NewFileStore()
 
-		types := configuredStorageTypes(name)
-		if len(types) == 0 {
+		entry, ok := findStorageEntry(config, name)
+		if !ok {
 			return withExitCode(ExitUsage, fmt.Errorf("設定にストレージ %q がありません", name))
 		}
+		if !needsAuth(entry.Type) {
+			return withExitCode(ExitUsage, fmt.Errorf(
+				"ストレージ %q（種別 %s）は認証を必要としません", name, entry.Type))
+		}
 
-		// 同じ名前が複数の種別に設定されていることは通常ないが、
-		// あった場合はすべて削除する。
-		for _, storageType := range types {
-			if err := store.Delete(storageType, name); err != nil {
-				return err
-			}
+		if err := store.Delete(entry.Type, name); err != nil {
+			return err
 		}
 		fmt.Printf("%s のトークンを削除しました。\n", name)
 		return nil
@@ -125,19 +137,7 @@ var authStatusCmd = &cobra.Command{
 	RunE: func(_ *cobra.Command, _ []string) error {
 		store := auth.NewFileStore()
 
-		type row struct {
-			name        string
-			storageType string
-		}
-		rows := []row{}
-		for _, c := range config.Dropbox {
-			rows = append(rows, row{c.Name, dropbox.Type})
-		}
-		for _, c := range config.GoogleDrive {
-			rows = append(rows, row{c.Name, googledrive.Type})
-		}
-		sort.Slice(rows, func(i, j int) bool { return rows[i].name < rows[j].name })
-
+		rows := authRequiredEntries(config)
 		if len(rows) == 0 {
 			fmt.Println("認証が必要なストレージは設定されていません。")
 			return nil
@@ -147,8 +147,8 @@ var authStatusCmd = &cobra.Command{
 		fmt.Fprintln(w, "名前\t種別\t状態\t保存先")
 		for _, r := range rows {
 			fmt.Fprintf(w, "%s\t%s\t%s\t%s\n",
-				r.name, r.storageType, authStatusOf(store, r.storageType, r.name),
-				store.Path(r.storageType, r.name))
+				r.Name, r.Type, authStatusOf(store, r.Type, r.Name),
+				store.Path(r.Type, r.Name))
 		}
 		return w.Flush()
 	},
@@ -175,36 +175,6 @@ func authStatusOf(store auth.Store, storageType, name string) string {
 		return "認証済み（期限切れ・自動更新されます）"
 	}
 	return fmt.Sprintf("認証済み（%s まで有効）", tok.Expiry.Local().Format("2006-01-02 15:04"))
-}
-
-func findDropboxConfig(name string) (DropboxConfig, bool) {
-	for _, c := range config.Dropbox {
-		if c.Name == name {
-			return c, true
-		}
-	}
-	return DropboxConfig{}, false
-}
-
-func findGoogleDriveConfig(name string) (GoogleDriveConfig, bool) {
-	for _, c := range config.GoogleDrive {
-		if c.Name == name {
-			return c, true
-		}
-	}
-	return GoogleDriveConfig{}, false
-}
-
-// configuredStorageTypes は、その名前が設定されているストレージ種別を返します。
-func configuredStorageTypes(name string) []string {
-	types := []string{}
-	if _, ok := findDropboxConfig(name); ok {
-		types = append(types, dropbox.Type)
-	}
-	if _, ok := findGoogleDriveConfig(name); ok {
-		types = append(types, googledrive.Type)
-	}
-	return types
 }
 
 func init() {

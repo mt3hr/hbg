@@ -61,29 +61,80 @@ hbg config init
 ```yaml
 DefaultWorker: 2
 
-Local:
-  name: local
-
-Dropbox:
+storages:
+  - name: local
+    type: local
   - name: dropbox
-
-GoogleDrive:
+    type: dropbox
   - name: googledrive
+    type: googledrive
 ```
 
 - `DefaultWorker` は同時処理数です。`copy` の `-w` で上書きできます。
 - `name` はコマンドで `名前:パス` の形式で指定するときの名前です。
-- 使わないストレージの行は削除するかコメントアウトしてください。
+- `type` はストレージの種類です。`hbg copy --help` で一覧を確認できます。
+- 使わないストレージの項目は削除するかコメントアウトしてください。
 
-同じタイプに複数の名前を与えると、複数アカウントを使い分けられます。
+同じ種類に複数の名前を与えると、複数アカウントを使い分けられます。
 
 ```yaml
-Dropbox:
+storages:
   - name: dropbox_private
+    type: dropbox
   - name: dropbox_work
+    type: dropbox
 ```
 
+`name` と `type` 以外の項目は、ストレージごとの設定として渡されます。
+どの項目でも `${環境変数}` を書けるので、秘密を設定ファイルに直接
+書かずに済みます。
+
 `--config_file` で任意のパスを指定することもできます。
+
+### 古い書き方
+
+種類ごとに項目を分ける書き方も引き続き読めます。
+
+```yaml
+Local:
+  name: local
+Dropbox:
+  - name: dropbox
+```
+
+ただしこの書き方では、あとから追加したストレージ（SFTP など）を
+書き表せません。両方を混ぜて書けるので、既存の設定に `storages:` を
+足していけば全部を書き直さずに済みます。
+
+### SFTP の指定
+
+```yaml
+storages:
+  - name: nas
+    type: sftp
+    host: サーバーのホスト名
+    user: ログイン名
+    # port: 22
+    # key_file: 秘密鍵の場所（省略時は $HOME/hbg/credentials/sftp_<名前>.key）
+    # key_passphrase: ${SFTP_KEY_PASSPHRASE}
+    # password: ${SFTP_PASSWORD}
+    # use_agent: false
+    # known_hosts_file: 省略時は $HOME/hbg/configs/known_hosts
+    # strict_host_key_checking: yes  # yes / accept-new / no
+    # root: 起点にするディレクトリ
+```
+
+ホスト鍵は `$HOME/hbg/configs/known_hosts` で確かめます。
+`~/.ssh/known_hosts` を既定にしていないのは、hbg が他の道具の設定を
+書き換えないためです。使いたい場合は `known_hosts_file` で指定してください。
+
+はじめて接続するときは記録がないので拒否されます。
+`strict_host_key_checking: accept-new` を指定すると、鍵の指紋を
+表示したうえで記録し、次回からはその鍵とだけ接続します。
+**記録済みの鍵が変わった場合は `accept-new` でも拒否します。**
+
+書き込みは `.名前.hbgpart` という一時ファイルに行い、書き終えてから
+本来の名前に置き換えます。途中で止めても中身の欠けたファイルは残りません。
 
 ### Google Drive の指定
 
@@ -370,6 +421,7 @@ failed  /photos/b.jpg   null
 
 現時点で把握している問題です。順次修正していきます。
 
+- SFTP には内容のハッシュを求める標準の方法がないため、`--checksum` を使えません。
 - Google ドキュメントなどの独自形式は転送できません（上記参照）。
   書き出し形式を選んで変換する仕組みは未実装です。
 - Google Drive は同じフォルダに同じ名前のものを複数作れます。
@@ -380,15 +432,15 @@ failed  /photos/b.jpg   null
 
 ### ストレージごとにできること
 
-| | ローカル | Dropbox | Google Drive |
-| --- | --- | --- | --- |
-| 更新時刻の保持 | ○ | ○（UTCの秒まで） | ○（ミリ秒まで） |
-| ハッシュ | sha256 / md5 / sha1 / dropbox | dropbox | sha256 / sha1 / md5 |
-| サーバー側コピー | － | ○ | ○ |
-| 移動・改名 | ○ | ○ | ○ |
-| 途中からの読み出し | ○ | ○ | ○ |
-| 分割送信 | － | ○ | ○ |
-| 空のディレクトリ | ○ | ○ | ○ |
+| | ローカル | Dropbox | Google Drive | SFTP |
+| --- | --- | --- | --- | --- |
+| 更新時刻の保持 | ○ | ○（UTCの秒まで） | ○（ミリ秒まで） | ○（秒まで） |
+| ハッシュ | sha256 / md5 / sha1 / dropbox | dropbox | sha256 / sha1 / md5 | － |
+| サーバー側コピー | － | ○ | ○ | － |
+| 移動・改名 | ○ | ○ | ○ | ○ |
+| 途中からの読み出し | ○ | ○ | ○ | ○ |
+| 分割送信 | － | ○ | ○ | － |
+| 空のディレクトリ | ○ | ○ | ○ | ○ |
 
 `--checksum` は両側に共通して使えるハッシュがある組み合わせでのみ動きます。
 ローカルは dropbox 形式のハッシュも計算できるので、ローカルと Dropbox、

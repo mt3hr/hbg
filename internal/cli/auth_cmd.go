@@ -10,7 +10,8 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/mt3hr/hbg"
+	"github.com/mt3hr/hbg/backend/dropbox"
+	"github.com/mt3hr/hbg/backend/googledrive"
 	"github.com/mt3hr/hbg/internal/auth"
 	"github.com/spf13/cobra"
 )
@@ -42,7 +43,7 @@ var authLoginCmd = &cobra.Command{
 		ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt)
 		defer stop()
 
-		opts := hbg.AuthLoginOptions{
+		opts := auth.LoginOptions{
 			OpenBrowser: !authOpt.noBrowser,
 			Prompt: func(authURL string) {
 				fmt.Println("ブラウザで次のURLを開き、hbg のアクセスを許可してください。")
@@ -55,18 +56,18 @@ var authLoginCmd = &cobra.Command{
 		}
 
 		if dbxCfg, ok := findDropboxConfig(name); ok {
-			if err := hbg.DropboxLogin(ctx, dbxCfg.toStorageConfig(), opts); err != nil {
+			if err := dropbox.Login(ctx, dbxCfg.toStorageConfig(), opts); err != nil {
 				return authLoginError(name, err)
 			}
-			reportLoginSuccess(hbg.DropboxStorageType, name)
+			reportLoginSuccess(dropbox.Type, name)
 			return nil
 		}
 
 		if gdvCfg, ok := findGoogleDriveConfig(name); ok {
-			if err := hbg.GoogleDriveLogin(ctx, gdvCfg.toStorageConfig(), opts); err != nil {
+			if err := googledrive.Login(ctx, gdvCfg.toStorageConfig(), opts); err != nil {
 				return authLoginError(name, err)
 			}
-			reportLoginSuccess(hbg.GoogleDriveStorageType, name)
+			reportLoginSuccess(googledrive.Type, name)
 			return nil
 		}
 
@@ -130,10 +131,10 @@ var authStatusCmd = &cobra.Command{
 		}
 		rows := []row{}
 		for _, c := range config.Dropbox {
-			rows = append(rows, row{c.Name, hbg.DropboxStorageType})
+			rows = append(rows, row{c.Name, dropbox.Type})
 		}
 		for _, c := range config.GoogleDrive {
-			rows = append(rows, row{c.Name, hbg.GoogleDriveStorageType})
+			rows = append(rows, row{c.Name, googledrive.Type})
 		}
 		sort.Slice(rows, func(i, j int) bool { return rows[i].name < rows[j].name })
 
@@ -198,10 +199,10 @@ func findGoogleDriveConfig(name string) (GoogleDriveConfig, bool) {
 func configuredStorageTypes(name string) []string {
 	types := []string{}
 	if _, ok := findDropboxConfig(name); ok {
-		types = append(types, hbg.DropboxStorageType)
+		types = append(types, dropbox.Type)
 	}
 	if _, ok := findGoogleDriveConfig(name); ok {
-		types = append(types, hbg.GoogleDriveStorageType)
+		types = append(types, googledrive.Type)
 	}
 	return types
 }

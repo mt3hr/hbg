@@ -1,4 +1,4 @@
-package hbg
+package dropbox
 
 import (
 	"context"
@@ -13,13 +13,23 @@ import (
 	"golang.org/x/oauth2"
 )
 
-// DropboxStorageType は Dropbox ストレージの種別名です。
-const DropboxStorageType = "dropbox"
+// Config は Dropbox ストレージの設定です。
+type Config struct {
+	// Name は設定ファイルで付けた名前です。コマンドで "名前:パス" として使います。
+	Name string
+	// AppKey は Dropbox アプリのキーです。
+	// 空の場合は環境変数やビルド時に埋め込まれた値が使われます。
+	AppKey string
+	// AccessToken を指定すると、OAuth の認可を行わずこのトークンを使います。
+	// アプリコンソールで発行した長期トークンを使う場合に指定してください。
+	// 設定ファイルへの直接記述は避け、${環境変数} での指定を推奨します。
+	AccessToken string
+}
 
-// dropboxOAuth2Config は設定から oauth2.Config を組み立てます。
+// oauth2Config は設定から oauth2.Config を組み立てます。
 //
 // PKCE を使うためクライアントシークレットは不要です。
-func dropboxOAuth2Config(cfg DropboxConfig) (*oauth2.Config, error) {
+func oauth2Config(cfg Config) (*oauth2.Config, error) {
 	creds, err := auth.ResolveDropbox(cfg.AppKey)
 	if err != nil {
 		return nil, err
@@ -27,10 +37,10 @@ func dropboxOAuth2Config(cfg DropboxConfig) (*oauth2.Config, error) {
 	return auth.DropboxOAuth2Config(creds), nil
 }
 
-// DropboxLogin は対話的に認可を行い、トークンを保存します。
+// Login は対話的に認可を行い、トークンを保存します。
 // hbg auth login から呼ばれます。
-func DropboxLogin(ctx context.Context, cfg DropboxConfig, opts AuthLoginOptions) error {
-	oauthCfg, err := dropboxOAuth2Config(cfg)
+func Login(ctx context.Context, cfg Config, opts auth.LoginOptions) error {
+	oauthCfg, err := oauth2Config(cfg)
 	if err != nil {
 		return err
 	}
@@ -57,15 +67,15 @@ func DropboxLogin(ctx context.Context, cfg DropboxConfig, opts AuthLoginOptions)
 			"アプリの設定を確認して再試行してください")
 	}
 
-	return auth.NewFileStore().Save(DropboxStorageType, cfg.Name, tok)
+	return auth.NewFileStore().Save(Type, cfg.Name, tok)
 }
 
-// dropboxRetryPolicy は API 呼び出しの再試行方針です。
+// retryPolicy は API 呼び出しの再試行方針です。
 //
 // Dropbox SDK は既定では再試行しません。一方 Google API のクライアントは
 // 内部で再試行を持つため、以前は「Drive だけ再試行が効いて Dropbox は
 // 効かない」という非対称がありました。
-func dropboxRetryPolicy() *retry.Policy {
+func retryPolicy() *retry.Policy {
 	return &retry.Policy{
 		MaxRetries:     5,
 		InitialBackoff: 500 * time.Millisecond,
@@ -82,23 +92,23 @@ func dropboxRetryPolicy() *retry.Policy {
 	}
 }
 
-// newDropboxClient は Dropbox API のクライアントを作ります。
-func newDropboxClient(cfg DropboxConfig) (dbx.Client, error) {
+// newClient は Dropbox API のクライアントを作ります。
+func newClient(ctx context.Context, cfg Config) (dbx.ContextClient, error) {
 	// 長期トークンが明示されている場合はそれを使い、認可は行わない。
 	if cfg.AccessToken != "" {
-		return dbx.New(dbxapi.Config{
+		return dbx.NewContext(dbxapi.Config{
 			Token:       cfg.AccessToken,
-			RetryPolicy: dropboxRetryPolicy(),
+			RetryPolicy: retryPolicy(),
 		}), nil
 	}
 
-	oauthCfg, err := dropboxOAuth2Config(cfg)
+	oauthCfg, err := oauth2Config(cfg)
 	if err != nil {
 		return nil, err
 	}
 
 	store := auth.NewFileStore()
-	tok, err := store.Load(DropboxStorageType, cfg.Name)
+	tok, err := store.Load(Type, cfg.Name)
 	if err != nil {
 		if errors.Is(err, auth.ErrNoToken) {
 			return nil, fmt.Errorf("dropbox %q は未認証です。hbg auth login %s で認証してください", cfg.Name, cfg.Name)
@@ -111,14 +121,13 @@ func newDropboxClient(cfg DropboxConfig) (dbx.Client, error) {
 			"hbg auth login %s で認証をやり直してください", cfg.Name, cfg.Name)
 	}
 
-	ctx := context.Background()
 	// アクセストークンは4時間ほどで失効するが、リフレッシュトークンから
 	// 自動更新され、更新結果はディスクへ書き戻される。
 	src := auth.PersistingTokenSource(
-		oauthCfg.TokenSource(ctx, tok), store, DropboxStorageType, cfg.Name, tok)
+		oauthCfg.TokenSource(ctx, tok), store, Type, cfg.Name, tok)
 
-	return dbx.New(dbxapi.Config{
+	return dbx.NewContext(dbxapi.Config{
 		TokenSource: src,
-		RetryPolicy: dropboxRetryPolicy(),
+		RetryPolicy: retryPolicy(),
 	}), nil
 }

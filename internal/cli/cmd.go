@@ -205,6 +205,7 @@ func init() {
 	rootCmd.AddCommand(shellCmd)
 	rootCmd.AddCommand(configCmd)
 	rootCmd.AddCommand(authCmd)
+	rootCmd.AddCommand(checkCmd)
 
 	rootPf := rootCmd.PersistentFlags()
 	rootPf.StringVar(&rootOpt.configfile, "config_file", "", "設定ファイルのパス")

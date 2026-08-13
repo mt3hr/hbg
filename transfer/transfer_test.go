@@ -119,7 +119,7 @@ func TestRunIgnoresNames(t *testing.T) {
 	put(t, src, "/data/Thumbs.db", "x")
 
 	opts := baseOptions(src, dst)
-	opts.Ignore = []string{"Thumbs.db"}
+	opts.Filter = mustFilter(t, transfer.FilterSpec{Ignore: []string{"Thumbs.db"}})
 
 	result, err := transfer.Run(context.Background(), opts)
 	if err != nil {
@@ -283,4 +283,14 @@ func TestRunCancellation(t *testing.T) {
 	if result != nil && result.Failed != 0 {
 		t.Errorf("Failed=%d, 取り消しは失敗に数えない", result.Failed)
 	}
+}
+
+// mustFilter はテスト用に絞り込みを組み立てます。
+func mustFilter(t *testing.T, spec transfer.FilterSpec) *transfer.Filter {
+	t.Helper()
+	f, err := transfer.NewFilter(spec)
+	if err != nil {
+		t.Fatalf("NewFilter: %v", err)
+	}
+	return f
 }

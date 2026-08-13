@@ -99,3 +99,54 @@ func parseByteSize(s string) (int64, error) {
 	}
 	return int64(n * float64(multiplier)), nil
 }
+
+// buildComparePolicy はフラグから比較の規則を組み立てます。
+func buildComparePolicy() (transfer.ComparePolicy, error) {
+	spec := copyOpt.compare
+	switch {
+	case copyOpt.checksum && copyOpt.sizeOnly:
+		return transfer.ComparePolicy{}, fmt.Errorf("--checksum と --size-only は同時に指定できません")
+	case copyOpt.checksum:
+		spec = "size,hash"
+	case copyOpt.sizeOnly:
+		spec = "size"
+	}
+
+	fields, err := transfer.ParseCompareFields(spec)
+	if err != nil {
+		return transfer.ComparePolicy{}, fmt.Errorf("--compare の指定が不正です: %w", err)
+	}
+
+	// 古い名前が使われていればそちらを尊重する。
+	window := copyOpt.modifyWindow
+	if window == 0 {
+		window = copyOpt.updateDuration
+	}
+
+	return transfer.ComparePolicy{
+		Fields:         fields,
+		ModifyWindow:   window,
+		Update:         copyOpt.update && !copyOpt.overwrite,
+		IgnoreExisting: copyOpt.ignoreExisting,
+	}, nil
+}
+
+// buildFilter はフラグから絞り込みを組み立てます。
+func buildFilter() (*transfer.Filter, error) {
+	minSize, err := parseByteSize(copyOpt.minSize)
+	if err != nil {
+		return nil, fmt.Errorf("--min-size の指定が不正です: %w", err)
+	}
+	maxSize, err := parseByteSize(copyOpt.maxSize)
+	if err != nil {
+		return nil, fmt.Errorf("--max-size の指定が不正です: %w", err)
+	}
+
+	return transfer.NewFilter(transfer.FilterSpec{
+		Ignore:  copyOpt.ignore,
+		Include: copyOpt.include,
+		Exclude: copyOpt.exclude,
+		MinSize: minSize,
+		MaxSize: maxSize,
+	})
+}

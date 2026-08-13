@@ -9,9 +9,7 @@ import (
 	"syscall"
 
 	"github.com/mt3hr/hbg/backend"
-	"github.com/mt3hr/hbg/backend/dropbox"
-	"github.com/mt3hr/hbg/backend/googledrive"
-	"github.com/mt3hr/hbg/backend/local"
+	_ "github.com/mt3hr/hbg/backend/sftp" // 種別 sftp を登録する
 	"github.com/spf13/cobra"
 )
 
@@ -97,9 +95,15 @@ const defaultWorker = 2
 // コンフィグファイルのデータモデル
 type Config struct {
 	DefaultWorker int
-	Dropbox       []DropboxConfig
-	GoogleDrive   []GoogleDriveConfig
-	Local         struct {
+
+	// Storages は種別を type で指定して並べたストレージの一覧です。
+	// 新しく足したストレージはこちらでしか書き表せません。
+	Storages []StorageEntry
+
+	// 以下は古い書き方です。storages と混ぜて書けます。
+	Dropbox     []DropboxConfig
+	GoogleDrive []GoogleDriveConfig
+	Local       struct {
 		Name string
 	}
 }
@@ -127,14 +131,6 @@ func (c DropboxConfig) accessToken() string {
 	return c.Token
 }
 
-func (c DropboxConfig) toStorageConfig() dropbox.Config {
-	return dropbox.Config{
-		Name:        c.Name,
-		AppKey:      os.ExpandEnv(c.AppKey),
-		AccessToken: os.ExpandEnv(c.accessToken()),
-	}
-}
-
 // GoogleDriveConfig は設定ファイルの Google Drive 1件ぶんです。
 type GoogleDriveConfig struct {
 	Name string
@@ -150,17 +146,6 @@ type GoogleDriveConfig struct {
 	// NativeFiles は Google ドキュメントなどの扱いです。
 	// "error"（既定）か "skip" を指定します。
 	NativeFiles string `mapstructure:"native_files"`
-}
-
-func (c GoogleDriveConfig) toStorageConfig() googledrive.Config {
-	return googledrive.Config{
-		Name:         c.Name,
-		ClientID:     os.ExpandEnv(c.ClientID),
-		ClientSecret: os.ExpandEnv(c.ClientSecret),
-		DriveID:      os.ExpandEnv(c.DriveID),
-		RootFolderID: os.ExpandEnv(c.RootFolderID),
-		NativeFiles:  c.NativeFiles,
-	}
 }
 
 var (
@@ -228,40 +213,10 @@ func init() {
 // 以前はどのコマンドでも設定にあるすべてのストレージを構築しており、
 // ローカルのファイルを一覧するだけでクラウドの認証が走っていました。
 func resolverFromConfig(c *Config) (*backend.Resolver, error) {
-	entries := []backend.Entry{}
-
-	if c.Local.Name != "" {
-		entries = append(entries, backend.Entry{
-			Name: c.Local.Name,
-			Type: local.Type,
-		})
+	entries, err := storageEntries(c)
+	if err != nil {
+		return nil, err
 	}
-
-	for _, cfg := range c.Dropbox {
-		entries = append(entries, backend.Entry{
-			Name: cfg.Name,
-			Type: dropbox.Type,
-			Params: backend.Params{
-				"app_key":      os.ExpandEnv(cfg.AppKey),
-				"access_token": os.ExpandEnv(cfg.accessToken()),
-			},
-		})
-	}
-
-	for _, cfg := range c.GoogleDrive {
-		entries = append(entries, backend.Entry{
-			Name: cfg.Name,
-			Type: googledrive.Type,
-			Params: backend.Params{
-				"client_id":      os.ExpandEnv(cfg.ClientID),
-				"client_secret":  os.ExpandEnv(cfg.ClientSecret),
-				"drive_id":       os.ExpandEnv(cfg.DriveID),
-				"root_folder_id": os.ExpandEnv(cfg.RootFolderID),
-				"native_files":   cfg.NativeFiles,
-			},
-		})
-	}
-
 	return backend.NewResolver(entries)
 }
 

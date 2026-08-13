@@ -11,8 +11,8 @@ func init() {
 	backend.Register(backend.Descriptor{
 		Type:    Type,
 		Summary: "Dropbox",
-		ConfigDoc: `Dropbox:
-  - name: dropbox
+		ConfigDoc: `  - name: dropbox
+    type: dropbox
     # app_key: ${HBG_DROPBOX_APP_KEY}
 `,
 		New: func(ctx context.Context, name string, params backend.Params) (storage.Storage, error) {

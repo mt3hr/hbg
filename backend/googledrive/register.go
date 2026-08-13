@@ -11,8 +11,8 @@ func init() {
 	backend.Register(backend.Descriptor{
 		Type:    Type,
 		Summary: "Google Drive",
-		ConfigDoc: `GoogleDrive:
-  - name: googledrive
+		ConfigDoc: `  - name: googledrive
+    type: googledrive
     # client_id: ${HBG_GOOGLE_CLIENT_ID}
     # client_secret: ${HBG_GOOGLE_CLIENT_SECRET}
     # drive_id: 共有ドライブのID（省略時はマイドライブ）

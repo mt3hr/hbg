@@ -34,6 +34,8 @@ func supportedStorageTypesHelp() string {
 // 設定ファイルの雛形を組み立てます。
 func defaultConfigFromDescriptors() string {
 	var sb strings.Builder
+	sb.WriteString("storages:\n")
+
 	for _, d := range backend.Descriptors() {
 		if d.ConfigDoc == "" || d.Type == "memory" {
 			continue

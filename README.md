@@ -136,6 +136,63 @@ storages:
 書き込みは `.名前.hbgpart` という一時ファイルに行い、書き終えてから
 本来の名前に置き換えます。途中で止めても中身の欠けたファイルは残りません。
 
+### S3 互換の指定
+
+Amazon S3 のほか、Cloudflare R2・Backblaze B2・MinIO・Wasabi など、
+同じ口を持つものに使えます。
+
+```yaml
+storages:
+  - name: s3
+    type: s3
+    provider: aws       # aws / r2 / b2 / minio / wasabi / other
+    bucket: 入れ物の名前
+    region: ap-northeast-1
+    # endpoint: 接続先（提供元から決まる場合は不要）
+    # account_id: Cloudflare R2 の口座ID
+    # access_key_id: ${AWS_ACCESS_KEY_ID}
+    # secret_access_key: ${AWS_SECRET_ACCESS_KEY}
+    # profile: ~/.aws のどの設定を使うか
+    # force_path_style: false   # MinIO では true
+    # storage_class: STANDARD
+    # list_metadata: head
+    # directory_markers: true
+    # root: 起点にする接頭辞
+```
+
+認証情報は次の順で探します。
+
+1. 設定ファイルの `access_key_id` / `secret_access_key`
+2. `$HOME/hbg/credentials/s3_<名前>.yaml`
+3. 環境変数や `~/.aws`（`profile` を指定した場合もここ）
+
+```yaml
+# $HOME/hbg/credentials/s3_s3.yaml
+access_key_id: ...
+secret_access_key: ...
+```
+
+#### 更新時刻について
+
+オブジェクトストレージが持つ時刻は「書き込まれた時刻」で、元のファイルの
+更新時刻とは別ものです。hbg は元の時刻を `x-amz-meta-mtime` に入れておき、
+そちらを比較に使います。書式は rclone と同じなので、同じ入れ物を
+両方の道具から使えます。
+
+ただし一覧の応答にはこの項目が含まれないため、既定
+（`list_metadata: head`）では1件ずつ問い合わせます。要求の回数が
+件数ぶん増えるので、気になる場合は `list_metadata: none` を指定してください。
+そのかわり比較には書き込まれた時刻が使われ、S3 から取り出す向きの
+同期で毎回コピーし直すことになります。
+
+#### 空のディレクトリについて
+
+オブジェクトストレージにディレクトリはありません。`写真/2024/a.jpg` の
+ような名前を `/` で切って、階層があるかのように見せているだけです。
+
+中身のないディレクトリを表すために、既定では末尾が `/` の空のオブジェクトを
+書きます（rclone と同じ）。不要なら `directory_markers: false` にしてください。
+
 ### Google Drive の指定
 
 ```yaml
@@ -422,6 +479,9 @@ failed  /photos/b.jpg   null
 現時点で把握している問題です。順次修正していきます。
 
 - SFTP には内容のハッシュを求める標準の方法がないため、`--checksum` を使えません。
+- S3 に分割して送られたオブジェクトの ETag は MD5 ではありません。
+  hbg が書いたものは元の MD5 を項目に控えるので比較できますが、
+  他の道具が分割して書いたものは `--checksum` で比較できません。
 - Google ドキュメントなどの独自形式は転送できません（上記参照）。
   書き出し形式を選んで変換する仕組みは未実装です。
 - Google Drive は同じフォルダに同じ名前のものを複数作れます。
@@ -432,15 +492,15 @@ failed  /photos/b.jpg   null
 
 ### ストレージごとにできること
 
-| | ローカル | Dropbox | Google Drive | SFTP |
-| --- | --- | --- | --- | --- |
-| 更新時刻の保持 | ○ | ○（UTCの秒まで） | ○（ミリ秒まで） | ○（秒まで） |
-| ハッシュ | sha256 / md5 / sha1 / dropbox | dropbox | sha256 / sha1 / md5 | － |
-| サーバー側コピー | － | ○ | ○ | － |
-| 移動・改名 | ○ | ○ | ○ | ○ |
-| 途中からの読み出し | ○ | ○ | ○ | ○ |
-| 分割送信 | － | ○ | ○ | － |
-| 空のディレクトリ | ○ | ○ | ○ | ○ |
+| | ローカル | Dropbox | Google Drive | SFTP | S3 互換 |
+| --- | --- | --- | --- | --- | --- |
+| 更新時刻の保持 | ○ | ○（UTCの秒まで） | ○（ミリ秒まで） | ○（秒まで） | ○（項目に保存） |
+| ハッシュ | sha256 / md5 / sha1 / dropbox | dropbox | sha256 / sha1 / md5 | － | md5 |
+| サーバー側コピー | － | ○ | ○ | － | ○ |
+| 移動・改名 | ○ | ○ | ○ | ○ | ○（コピーして削除） |
+| 途中からの読み出し | ○ | ○ | ○ | ○ | ○ |
+| 分割送信 | － | ○ | ○ | － | ○ |
+| 空のディレクトリ | ○ | ○ | ○ | ○ | △（印を書く） |
 
 `--checksum` は両側に共通して使えるハッシュがある組み合わせでのみ動きます。
 ローカルは dropbox 形式のハッシュも計算できるので、ローカルと Dropbox、

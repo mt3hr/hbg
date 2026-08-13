@@ -45,6 +45,8 @@ func withExitCode(code int, err error) error {
 // コマンドを実行し、プロセスの終了コードを返します。
 // main関数はこの戻り値で os.Exit します。
 func Execute() int {
+	defer closeLogging()
+
 	err := rootCmd.Execute()
 	if err == nil {
 		return ExitOK
@@ -136,6 +138,11 @@ var (
 		SilenceUsage:  true,
 		SilenceErrors: true, // エラーの表示は Execute で行う
 		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
+			if err := initLogging(); err != nil {
+				// ログを開けなくても本来の処理は続けられる。
+				warnf("ログを初期化できませんでした: %v", err)
+			}
+
 			// 設定ファイル自体を操作するコマンドは、設定がなくても動く必要がある。
 			if skipsConfigLoad(cmd) {
 				return nil

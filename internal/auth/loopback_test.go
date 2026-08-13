@@ -396,3 +396,39 @@ func mustPort(t *testing.T, rawURL string) int {
 	}
 	return port
 }
+
+func TestRedirectURI(t *testing.T) {
+	if got := RedirectURI("", 53682); got != "http://127.0.0.1:53682/callback" {
+		t.Errorf("既定のホストが使われていない: %q", got)
+	}
+	if got := RedirectURI("localhost", 53682); got != "http://localhost:53682/callback" {
+		t.Errorf("指定したホストが使われていない: %q", got)
+	}
+}
+
+// ホストを localhost にしても、待ち受け(127.0.0.1)へ届くことを確かめます。
+//
+// Dropbox は http のリダイレクトを localhost にしか許さないため、
+// URI の見た目だけを localhost にして待ち受けは 127.0.0.1 のままにしています。
+// 名前解決が ::1 を先に返す環境でこれが壊れると認可が完了しなくなります。
+func TestFlowUsesRedirectHost(t *testing.T) {
+	p := newFakeProvider(t)
+
+	var redirectURI string
+	flow := &Flow{
+		Config:       p.config(),
+		RedirectHost: "localhost",
+		Timeout:      10 * time.Second,
+		Prompt: func(authURL string) {
+			u, _ := url.Parse(authURL)
+			redirectURI = u.Query().Get("redirect_uri")
+			go p.visit(t, authURL)
+		},
+	}
+	if _, err := flow.Run(context.Background()); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if !strings.HasPrefix(redirectURI, "http://localhost:") {
+		t.Errorf("redirect_uri = %q, localhost であるべき", redirectURI)
+	}
+}

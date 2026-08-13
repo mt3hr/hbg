@@ -72,6 +72,20 @@ func ResolveGoogle(idFromConfig, secretFromConfig string) (ClientCredentials, er
 	return ClientCredentials{ClientID: id, ClientSecret: secret}, nil
 }
 
+// indentLines は各行に接頭辞を付けて連結します。
+// 案内の中に URI の一覧を埋め込むために使います。
+func indentLines(lines []string, indent string) string {
+	var b strings.Builder
+	for i, line := range lines {
+		if i > 0 {
+			b.WriteString("\n")
+		}
+		b.WriteString(indent)
+		b.WriteString(line)
+	}
+	return b.String()
+}
+
 func firstNonEmpty(values ...string) string {
 	for _, v := range values {
 		if s := strings.TrimSpace(v); s != "" {
@@ -98,9 +112,7 @@ func setupInstructions(storageType string) string {
      - Choose an API: Scoped access
      - Choose the type of access: Full Dropbox（または App folder）
   2. Settings タブの OAuth 2 > Redirect URIs に以下を登録
-       http://localhost:53682/callback
-       http://localhost:53683/callback
-       http://localhost:53684/callback
+` + indentLines(DropboxRedirectURIs(), "       ") + `
   3. Permissions タブで以下の権限を有効にして Submit
        files.metadata.read  files.metadata.write
        files.content.read   files.content.write

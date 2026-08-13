@@ -5,10 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/mt3hr/hbg/internal/auth"
 	"github.com/mt3hr/hbg/storage"
 	"github.com/mt3hr/hbg/storage/storagetest"
 )
@@ -461,5 +463,36 @@ func TestClassifySummary(t *testing.T) {
 		if got.class != tt.class {
 			t.Errorf("classifySummary(%q) の種類 = %v, want %v", tt.summary, got.class, tt.class)
 		}
+	}
+}
+
+// リダイレクト URI がアプリ登録時の案内と一致していることを確かめます。
+//
+// Dropbox は登録された文字列との完全一致でしか照合せず、外れると認可画面が
+// invalid redirect uri を出すだけで、こちらのログには何も残りません。
+// 以前ここが既定の 127.0.0.1 のままで、案内は localhost を書いていたため、
+// 手順どおりに登録しても認可が通りませんでした。
+func TestLoginFlowRedirectMatchesRegisteredURIs(t *testing.T) {
+	flow := loginFlow(auth.DropboxOAuth2Config(auth.ClientCredentials{ClientID: "key"}), auth.LoginOptions{})
+
+	if flow.RedirectHost != auth.DropboxRedirectHost {
+		t.Errorf("RedirectHost = %q, want %q", flow.RedirectHost, auth.DropboxRedirectHost)
+	}
+	if len(flow.FixedPorts) == 0 {
+		t.Fatal("ポートを固定していない。Dropbox は任意ポートを許可しない")
+	}
+
+	// 実際に使いうる URI が、すべて登録案内に載っていること。
+	registered := auth.DropboxRedirectURIs()
+	for _, port := range flow.FixedPorts {
+		uri := auth.RedirectURI(flow.RedirectHost, port)
+		if !slices.Contains(registered, uri) {
+			t.Errorf("%s を使いうるが、登録案内に載っていない: %v", uri, registered)
+		}
+	}
+
+	// PKCE を使うので App secret は不要。
+	if !flow.UsePKCE {
+		t.Error("PKCE を使っていない。パブリッククライアントでは必須")
 	}
 }

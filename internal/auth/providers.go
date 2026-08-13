@@ -14,7 +14,10 @@ var DropboxRedirectPorts = []int{53682, 53683, 53684}
 
 // DropboxRedirectHost は Dropbox のリダイレクト URI に書くホストです。
 //
-// Dropbox が http を許すのは localhost だけで、127.0.0.1 は登録できません。
+// Dropbox は localhost と 127.0.0.1 を別物として扱い、登録された文字列と
+// 完全に一致するものしか受け付けません。どちらに揃えるかだけの話ですが、
+// http のループバックを localhost で通す慣行が広く使われている
+// （rclone も同じ理由で localhost を使っています）ので、それに合わせます。
 // 待ち受け自体は 127.0.0.1 のままで、URI の見た目だけを合わせます。
 //
 // 以前はここが既定の 127.0.0.1 のままだった一方、下の登録手順は localhost を

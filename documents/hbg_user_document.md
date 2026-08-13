@@ -257,7 +257,6 @@ hbg completion bash      # bash / zsh / fish / powershell
 ```console
 hbg config init      # 設定ファイルの雛形を作る
 hbg config path      # 設定・認証情報・ログの場所を表示する
-hbg config migrate   # 旧レイアウトのファイルを $HOME/hbg 配下へ移す
 ```
 
 ### 終了コード
@@ -313,9 +312,8 @@ $HOME/hbg/
 
 `hbg config path` で実際の場所を確認できます。
 
-以前のバージョンはこれらをホームディレクトリ直下や一時ディレクトリに置いていました。
-`hbg config migrate` で移行できます（移動元は `.migrated` を付けて残ります）。
-移行しないままでも、旧パスの設定ファイルは読み込まれます。
+hbg が読み書きするのはこの配置だけです。ほかの場所に置いた設定ファイルは
+読みません（`--config_file` で明示したときを除く）。
 
 ---
 

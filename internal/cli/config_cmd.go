@@ -12,10 +12,10 @@ import (
 var configCmd = &cobra.Command{
 	Use:   "config",
 	Short: "設定ファイルを操作する",
-	// 設定ファイルを作る・移す・場所を見るコマンドなので、
+	// 設定ファイルを作る・場所を見るコマンドなので、
 	// 設定ファイルがまだ無くても動く必要がある。
 	Annotations: map[string]string{skipConfigLoadAnnotation: "true"},
-	Long: `設定ファイルの作成・移行・場所の確認を行います。
+	Long: `設定ファイルの作成・場所の確認を行います。
 
 hbg は設定・認証情報・ログ・キャッシュをすべて 1 つのディレクトリに
 まとめて保存します。既定は $HOME/hbg で、環境変数 HBG_HOME で変更できます。`,
@@ -41,53 +41,6 @@ var configInitCmd = &cobra.Command{
 		}
 		fmt.Printf("設定ファイルを作成しました: %s\n", path)
 		fmt.Println("使うストレージに合わせて編集してください。")
-		return nil
-	},
-}
-
-var configMigrateCmd = &cobra.Command{
-	Use:   "migrate",
-	Short: "旧レイアウトの設定・認証情報を移行する",
-	Long: `ホームディレクトリ直下や一時ディレクトリに散らばっていた
-設定ファイル・トークン・シェル履歴を $HOME/hbg 配下へ移します。
-
-移動元のファイルは削除せず、末尾に .migrated を付けて残します。
-移動先にすでにファイルがある場合は上書きしません。`,
-	Args: cobra.NoArgs,
-	RunE: func(_ *cobra.Command, _ []string) error {
-		pending, err := hbghome.PendingMigrations()
-		if err != nil {
-			return err
-		}
-		if len(pending) == 0 {
-			fmt.Println("移行するものはありません。")
-			return nil
-		}
-
-		// 移行先を先に見せる。HBG_HOME を別の場所へ向けたまま実行すると
-		// 意図しない場所へ集約されてしまうため。
-		root, err := hbghome.Root()
-		if err != nil {
-			return err
-		}
-		fmt.Printf("移行先: %s\n", root)
-		if os.Getenv(hbghome.EnvHome) != "" {
-			fmt.Printf("（%s が設定されています）\n", hbghome.EnvHome)
-		}
-		fmt.Println()
-
-		done, err := hbghome.Migrate()
-		for _, m := range done {
-			if m.Skipped {
-				fmt.Printf("スキップ: %s\n", m)
-				continue
-			}
-			fmt.Printf("移動: %s\n", m)
-		}
-		if err != nil {
-			return err
-		}
-		fmt.Println("\n移動元のファイルは .migrated を付けて残しています。")
 		return nil
 	},
 }
@@ -123,19 +76,6 @@ var configPathCmd = &cobra.Command{
 			return err
 		}
 
-		if loadedConfigFile != "" && loadedConfigFile != mustConfigFile() {
-			fmt.Printf("\n実際に読み込んだ設定ファイル: %s\n", loadedConfigFile)
-			fmt.Println("（非推奨の場所です。hbg config migrate で移せます）")
-		}
-
-		pending, err := hbghome.PendingMigrations()
-		if err == nil && len(pending) > 0 {
-			fmt.Printf("\n未移行のファイルが %d件あります。hbg config migrate で移せます:\n", len(pending))
-			for _, m := range pending {
-				fmt.Printf("  %s\n", m.From)
-			}
-		}
-
 		return nil
 	},
 }
@@ -158,7 +98,6 @@ func existenceMark(path string) string {
 
 func init() {
 	configCmd.AddCommand(configInitCmd)
-	configCmd.AddCommand(configMigrateCmd)
 	configCmd.AddCommand(configPathCmd)
 }
 

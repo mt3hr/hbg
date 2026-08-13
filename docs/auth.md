@@ -26,8 +26,9 @@ App key を設定ファイルか環境変数 `HBG_DROPBOX_APP_KEY` に設定し�
 PKCE を使うため App secret は不要です。
 
 ```yaml
-Dropbox:
+storages:
   - name: dropbox
+    type: dropbox
     app_key: ${HBG_DROPBOX_APP_KEY}
 ```
 
@@ -35,8 +36,9 @@ Dropbox:
 Drive API を有効化して「デスクトップアプリ」の OAuth クライアント ID を発行します。
 
 ```yaml
-GoogleDrive:
+storages:
   - name: googledrive
+    type: googledrive
     client_id: ${HBG_GOOGLE_CLIENT_ID}
     client_secret: ${HBG_GOOGLE_CLIENT_SECRET}
 ```
@@ -53,7 +55,8 @@ Google Drive 全体へのアクセスは「制限付きスコープ」に分類�
 アプリコンソールで発行した長期トークンを使うこともできます。
 
 ```yaml
-Dropbox:
+storages:
   - name: dropbox
+    type: dropbox
     access_token: ${DROPBOX_TOKEN}
 ```

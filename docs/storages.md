@@ -230,8 +230,9 @@ secret_access_key: ...
 ## Google Drive の指定
 
 ```yaml
-GoogleDrive:
+storages:
   - name: 共有ドライブ
+    type: googledrive
     drive_id: ${DRIVE_ID}     # 共有ドライブのID。省略するとマイドライブ
     root_folder_id: ""        # 特定のフォルダをルートとして扱う
     native_files: error       # Google ドキュメントの扱い（error または skip）

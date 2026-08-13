@@ -1,3 +1,22 @@
+# ビルド成果物
 *.exe
-go.mod
-go.sum
+/dist/
+/hbg
+/hbg-*
+
+# エディタ・OS
+.DS_Store
+.idea/
+.vscode/
+
+# テスト・カバレッジ
+*.out
+*.test
+
+# ローカル設定（誤コミット防止）
+hbg_config.yaml
+hbg_token_*.json
+
+# NOTE: go.mod / go.sum は意図的に追跡する。
+# 以前これらを ignore していたため、クリーンクローンからビルドできず
+# 依存バージョンも再現できない状態になっていた。

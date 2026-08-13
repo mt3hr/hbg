@@ -1,4 +1,4 @@
-package cmd
+package cli
 
 import (
 	"fmt"
@@ -59,6 +59,50 @@ const (
 	TB
 )
 
+// humanReadableSize は、バイト数を人間が読みやすい単位の文字列にします。
+// 単位は1024進で、小数第1位まで切り捨てて表示します（例: 1536 -> "1.5K"）。
+//
+// 旧実装は小数部を求める際に「KBの個数」で剰余を取っており
+// （b = (((size % TB) % GB) % MB) % kb）、表示される小数が実際の値と
+// 対応していませんでした。ここで正しい計算に修正しています。
+func humanReadableSize(size int64) string {
+	if size == 0 {
+		return "0B"
+	}
+
+	negative := size < 0
+	if negative {
+		size = -size
+	}
+
+	var s string
+	switch {
+	case size >= TB:
+		s = formatSizeWithUnit(size, TB, "T")
+	case size >= GB:
+		s = formatSizeWithUnit(size, GB, "G")
+	case size >= MB:
+		s = formatSizeWithUnit(size, MB, "M")
+	case size >= KB:
+		s = formatSizeWithUnit(size, KB, "K")
+	default:
+		s = strconv.FormatInt(size, 10) + "B"
+	}
+
+	if negative {
+		return "-" + s
+	}
+	return s
+}
+
+// formatSizeWithUnit は size を unit で割り、小数第1位まで表示した文字列を返します。
+// 小数部は切り捨てです。浮動小数点を使わないため丸め誤差が出ません。
+func formatSizeWithUnit(size, unit int64, suffix string) string {
+	whole := size / unit
+	frac := (size % unit) * 10 / unit
+	return strconv.FormatInt(whole, 10) + "." + strconv.FormatInt(frac, 10) + suffix
+}
+
 func runList(_ *cobra.Command, _ []string) {
 	storages, err := storageMapFromConfig(config)
 	if err != nil {
@@ -108,51 +152,9 @@ func list(storage hbg.Storage, path string, long, humanReadable bool) error {
 			timestr = file.LastMod.Format(time.RFC3339)
 
 			if humanReadable {
-				sizestr = func() string {
-					sizestr := ""
-					if file.Size != 0 {
-						tb := file.Size / TB
-						gb := (file.Size % TB) / GB
-						mb := ((file.Size % TB) % GB) / MB
-						kb := (((file.Size % TB) % GB) % MB) / KB
-						b := file.Size
-						if kb != 0 {
-							b = (((file.Size % TB) % GB) % MB) % kb
-						}
-
-						if tb != 0 {
-							sizestr += strconv.FormatInt(tb, 10) + "."
-							sizestr += strconv.FormatInt(gb/100, 10) + "T"
-							return sizestr
-						}
-						if gb != 0 {
-							sizestr += strconv.FormatInt(gb, 10) + "."
-							sizestr += strconv.FormatInt(mb/100, 10) + "G"
-							return sizestr
-						}
-						if mb != 0 {
-							sizestr += strconv.FormatInt(mb, 10) + "."
-							sizestr += strconv.FormatInt(kb/100, 10) + "M"
-							return sizestr
-						}
-						if kb != 0 {
-							sizestr += strconv.FormatInt(kb, 10) + "."
-							sizestr += strconv.FormatInt(b/100, 10) + "K"
-							return sizestr
-						}
-						if b != 0 {
-							sizestr += strconv.FormatInt(b, 10) + "B"
-							return sizestr
-						}
-					}
-					return "0B"
-				}()
+				sizestr = humanReadableSize(file.Size)
 			} else {
 				sizestr = strconv.FormatInt(file.Size, 10)
-				if err != nil {
-					err = fmt.Errorf("failed parse int %d. %w", file.Size, err)
-					log.Fatal(err)
-				}
 			}
 		}
 

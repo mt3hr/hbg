@@ -1,4 +1,4 @@
-package cmd
+package cli
 
 import (
 	"fmt"
@@ -33,17 +33,18 @@ GoogleDriveやDropboxを使わない場合は該当する行をコメントア�
 GoogleDriveやDropboxは新たにnameを割り当てることで複数のアカウントを使うことができます。
 name割当後の初回起動時には認証URLが出てくるので、コードを取得して貼り付けてください。`,
 		Example: `使用例
-hbg copy local:C:/Users/user/Desktop/test.txt dropbox:/hbg,
-hbg copy dropbox:/hbg/test.txt local:/home/user/デスクトップ
+hbg copy local:C:/hoge/test.txt dropbox:/hbg
+hbg copy dropbox:/hbg/test.txt local:/home/user/documents
 hbg copy -w 10 local:C:/hoge local:C:/fuga
 
 
 設定ファイルの例
+DefaultWorker: 2
 local:
   name: local
 dropbox:
 - name: dropbox
-googledrive: 
+googledrive:
 - name: googledrive
 `,
 		PreRun: func(_ *cobra.Command, args []string) {
@@ -87,7 +88,7 @@ googledrive:
 func init() {
 	copyFs := copyCmd.Flags()
 	copyFs.StringArrayVarP(&copyOpt.ignore, "ignore", "i", []string{".nomedia", "desktop.ini", "thumbnails", ".thumbnails", "Thumbs.db", ".DS_Store", ".localized"}, "無視するファイル")
-	copyFs.DurationVar(&copyOpt.updateDuration, "update_duration", time.Duration(time.Second), "更新されたとみなす期間")
+	copyFs.DurationVar(&copyOpt.updateDuration, "update_duration", time.Second, "更新されたとみなす期間")
 	copyFs.IntVarP(&copyOpt.worker, "worker", "w", 0, "同時処理数。0だとconfigファイルの値で動きます。")
 }
 
@@ -186,18 +187,18 @@ func aggregateCopyFileArgs(q chan *copyFileArg, srcStorage, destStorage hbg.Stor
 	var err error
 
 	if srcFileInfos == nil {
-		parentDir := filepath.Dir(srcPath)
-		parentDir = filepath.ToSlash(parentDir)
-		srcFiles, err := srcStorage.List(parentDir)
-		if err != nil {
-			err = fmt.Errorf("failed list %s at %s: %w", parentDir, srcStorage.Type(), err)
-			return err
+		parentDir := filepath.ToSlash(filepath.Dir(srcPath))
+		srcFiles, listErr := srcStorage.List(parentDir)
+		if listErr != nil {
+			return fmt.Errorf("failed list %s at %s: %w", parentDir, srcStorage.Type(), listErr)
 		}
+		// もとは glob のエラーをブロックの外で検査していたが、
+		// ブロック内で := により err がシャドーされていたため、
+		// 外側の検査は常に nil を見る死にコードになっていた。
 		srcFileInfos, err = glob(srcFiles, srcPath)
-	}
-	if err != nil {
-		err = fmt.Errorf("failed glob %s. %w", srcPath, err)
-		return err
+		if err != nil {
+			return fmt.Errorf("failed glob %s. %w", srcPath, err)
+		}
 	}
 
 	if destFileInfos == nil {
@@ -311,21 +312,8 @@ Loop:
 
 		// ファイルで、
 		// 最終更新時刻の差がそれ未満かつ、ファイルサイズが同一だったらスキップ
-		for _, destFileInfo := range destFileInfos {
-			if srcFileInfo.Name == destFileInfo.Name {
-				srcTimeUTC := srcFileInfo.LastMod.UTC()
-				destTimeUTC := destFileInfo.LastMod.UTC()
-				duration := srcTimeUTC.Sub(destTimeUTC)
-
-				d := int64(duration)
-				if d < 0 {
-					d *= int64(-1)
-				}
-				if d <= int64(updateDuration) &&
-					srcFileInfo.Size == destFileInfo.Size {
-					continue Loop
-				}
-			}
+		if shouldSkipCopy(srcFileInfo, destFileInfos, updateDuration) {
+			continue Loop
 		}
 
 		// コピー
@@ -337,6 +325,34 @@ Loop:
 		}
 	}
 	return nil
+}
+
+// shouldSkipCopy は、srcFileInfo をコピーせずスキップしてよいかを判定します。
+//
+// 判定規則は「コピー先に同名のファイルがあり、かつ
+// 最終更新時刻の差が updateDuration 以内で、かつサイズが一致する」ことです。
+//
+// 注意: 時刻差は絶対値で比較しているため、コピー先のほうが新しい場合でも
+// updateDuration を超えていればコピー対象になります（＝上書きされます）。
+// これは既存の挙動であり、意図的にそのまま維持しています。
+func shouldSkipCopy(srcFileInfo *hbg.FileInfo, destFileInfos []*hbg.FileInfo, updateDuration time.Duration) bool {
+	for _, destFileInfo := range destFileInfos {
+		if srcFileInfo.Name != destFileInfo.Name {
+			continue
+		}
+		srcTimeUTC := srcFileInfo.LastMod.UTC()
+		destTimeUTC := destFileInfo.LastMod.UTC()
+		duration := srcTimeUTC.Sub(destTimeUTC)
+
+		d := int64(duration)
+		if d < 0 {
+			d *= int64(-1)
+		}
+		if d <= int64(updateDuration) && srcFileInfo.Size == destFileInfo.Size {
+			return true
+		}
+	}
+	return false
 }
 
 type copyFileArg struct {

@@ -12,10 +12,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mitchellh/go-homedir"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/drive/v3"
+	"google.golang.org/api/option"
 )
 
 var googleDriveMimeTypeFolder = "application/vnd.google-apps.folder"
@@ -357,7 +357,7 @@ func (g *googleDrive) getFileByPath(filepath string) (*drive.File, error) {
 // Retrieve a token, saves the token, then returns the generated client.
 func getClient(config *oauth2.Config, name string) (*http.Client, error) {
 	tokenFileName := fmt.Sprintf("hbg_token_%s_%s.json", "googledrive", name)
-	home, err := homedir.Dir()
+	home, err := os.UserHomeDir()
 	if err != nil {
 		err = fmt.Errorf("error at get user home directory: %w", err)
 		return nil, err
@@ -441,5 +441,7 @@ func getGoogleDriveService(name string) (*drive.Service, error) {
 		return nil, err
 	}
 
-	return drive.New(client)
+	// drive.New は非推奨。NewService を使う。
+	// 認証済みの *http.Client を渡すため、既定の認証情報探索は行わせない。
+	return drive.NewService(context.Background(), option.WithHTTPClient(client))
 }

@@ -1,0 +1,23 @@
+# 既定はテキストとして自動判定し、リポジトリ内は LF で保持する
+* text=auto eol=lf
+
+# Go のソースと周辺ファイルは常に LF。
+# Windows でチェックアウトしても CRLF にしないことで、
+# CI の gofmt -l / golangci-lint が誤検出しないようにする。
+*.go    text eol=lf
+go.mod  text eol=lf
+go.sum  text eol=lf
+*.md    text eol=lf
+*.yml   text eol=lf
+*.yaml  text eol=lf
+
+# Windows 用スクリプトは CRLF
+*.bat   text eol=crlf
+*.cmd   text eol=crlf
+*.ps1   text eol=crlf
+
+# バイナリ
+*.exe   binary
+*.png   binary
+*.jpg   binary
+*.gif   binary

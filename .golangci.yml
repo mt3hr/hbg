@@ -1,0 +1,103 @@
+version: "2"
+
+# 方針:
+#   リンタは「今回のリファクタで実際に見つかった不具合の型」に効くものを選んでいる。
+#   既存コードには未修正の指摘が残っているため、段階的に導入する。
+#   フェーズが進んで該当ファイルを作り直したら exclusions の項目を削ること。
+
+linters:
+  default: standard # errcheck, govet, ineffassign, staticcheck, unused
+  enable:
+    # err のシャドーイングを検出する。
+    # copy.go の glob エラーチェックが死にコードになっていた不具合と、
+    # googleDrive.go の getClient が初回必ず401になる不具合の両方がこれで出る。
+    - govet
+    # builtin の名前を隠す宣言を検出する。func copy(...) が該当。
+    - predeclared
+    # HTTP レスポンスボディの閉じ忘れ。
+    - bodyclose
+    # context を受け取れるのに使っていない箇所。
+    - noctx
+    # 使われない引数・不要な型変換。
+    - unparam
+    - unconvert
+    # 変数シャドーイング全般。
+    - copyloopvar
+    # エラーの比較に == を使っている箇所（errors.Is を使うべき箇所）。
+    - errorlint
+
+  settings:
+    govet:
+      enable:
+        - shadow
+    errcheck:
+      # Close() や Fprintf の戻り値まで全て求めると既存コードが埋まるため、
+      # 明示的に無視した式（_ = f()）は許容する。
+      check-blank: false
+      check-type-assertions: true
+    staticcheck:
+      checks:
+        - all
+
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - std-error-handling
+    rules:
+      # ---- 段階導入のための一時的な除外 ----
+      # 以下は計画の各フェーズで作り直す予定のファイル。
+      # 作り直しが済んだら、対応する行を削除すること。
+
+      # P7 で全面書き直し（パス解決・ページネーション・認証）。
+      # ineffassign は List/getFileByPath がエラーを握り潰して
+      # 空リストを正常返しする不具合を指している。bodyclose は Download の応答。
+      - path: googleDrive\.go
+        linters:
+          [
+            errcheck,
+            govet,
+            staticcheck,
+            unparam,
+            errorlint,
+            noctx,
+            ineffassign,
+            bodyclose,
+          ]
+
+      # P7 で filetransfer ベースに刷新
+      - path: dropbox\.go
+        linters: [errcheck, govet, unparam, errorlint, noctx]
+
+      # P4 で transfer/ パッケージへ移植。
+      # ineffassign は glob のエラーチェックが死にコードになっている不具合（P1で修正）。
+      - path: internal/cli/copy\.go
+        linters: [govet, errcheck, predeclared, unparam, ineffassign]
+
+      # P9 で書き直し（readline 差し替え・ドライブレター判定のヘルパ化）
+      - path: internal/cli/shell\.go
+        linters: [errcheck, govet, unparam, staticcheck, ineffassign]
+
+      # P2 で $HOME/hbg/ 集約とともに書き直し
+      - path: internal/cli/cmd\.go
+        linters: [errcheck, govet, unparam]
+
+      # P3 で新インターフェースへ移行
+      - path: localfilesystem\.go
+        linters: [errcheck, unparam]
+
+      - path: internal/cli/(list|remove)\.go
+        linters: [errcheck, unparam]
+
+      # テストコードでは戻り値の無視やシャドーイングを許容する
+      - path: _test\.go
+        linters: [errcheck, unparam, govet]
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0

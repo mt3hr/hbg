@@ -12,7 +12,6 @@ import (
 	dbxapi "github.com/dropbox/dropbox-sdk-go-unofficial/v6/dropbox"
 	dbx "github.com/dropbox/dropbox-sdk-go-unofficial/v6/dropbox/files"
 	"github.com/google/uuid"
-	"github.com/mitchellh/go-homedir"
 	"golang.org/x/oauth2"
 )
 
@@ -27,6 +26,22 @@ var (
 func TimeToDropbox(t time.Time) *time.Time {
 	tp := t.In(time.UTC).Truncate(time.Second)
 	return &tp
+}
+
+// toDBXTime は時刻をDropbox SDKが要求する型に変換します。
+//
+// SDK v6.1.0 で生成コードのタイムスタンプ型が time.Time から
+// dropbox.DBXTime へ変更されたため、この変換が必要になりました。
+// DBXTime は time.Time の定義型なので、丸めは TimeToDropbox に任せて
+// ここでは型変換だけを行います。
+func toDBXTime(t time.Time) *dbxapi.DBXTime {
+	d := dbxapi.DBXTime(*TimeToDropbox(t))
+	return &d
+}
+
+// fromDBXTime はDropbox SDKのタイムスタンプ型を time.Time に戻します。
+func fromDBXTime(t dbxapi.DBXTime) time.Time {
+	return time.Time(t)
 }
 
 // NewDropbox .
@@ -142,7 +157,7 @@ func (d *dropbox) Get(filepath string) (*File, error) {
 	return &File{
 		Data:    data,
 		Name:    metadata.Name,
-		LastMod: metadata.ClientModified,
+		LastMod: fromDBXTime(metadata.ClientModified),
 		Size:    int64(metadata.Size),
 	}, nil
 }
@@ -163,14 +178,9 @@ func (d *dropbox) Push(dirPath string, data *File) error {
 		return fmt.Errorf("%dbyte データのサイズが大きすぎます。%dbyte以内におさめてください。", data.Size, dropboxMaxSize)
 	}
 
-	// commitInfoを作る。timeはutcにして秒で丸める
-	uploadArg := dbx.NewUploadArg(path)
-	uploadArg.ClientModified = TimeToDropbox(data.LastMod)
-	uploadArg.Autorename = false
-	uploadArg.Mode = &dbx.WriteMode{Tagged: dbxapi.Tagged{Tag: dbx.WriteModeOverwrite}}
 	// uploadArgを作る。timeはutcにして秒で丸める
-	lastMod := TimeToDropbox(data.LastMod)
-	uploadArg.ClientModified = lastMod
+	uploadArg := dbx.NewUploadArg(path)
+	uploadArg.ClientModified = toDBXTime(data.LastMod)
 	uploadArg.Autorename = false
 	uploadArg.Mode = &dbx.WriteMode{Tagged: dbxapi.Tagged{Tag: dbx.WriteModeOverwrite}}
 
@@ -201,7 +211,7 @@ func (d *dropbox) Push(dirPath string, data *File) error {
 	}
 
 	// 最初、最後以外のチャンク
-	uploaded := uint64(dropboxChunkSize)
+	uploaded := dropboxChunkSize
 	datasize := uint64(data.Size)
 	var c *dbx.UploadSessionCursor
 	for datasize-uploaded > dropboxChunkSize {
@@ -328,22 +338,22 @@ func (d *dropbox) listFolder(dirpath string) (map[dbx.IsMetadata]interface{}, er
 
 // dropbox.metadataをfileinfoに変換します
 func metadataToFileInfo(metadata dbx.IsMetadata) (*FileInfo, error) {
-	switch metadata.(type) {
+	switch m := metadata.(type) {
 	case *dbx.FolderMetadata:
-		fo := metadata.(*dbx.FolderMetadata)
+		fo := m
 		return &FileInfo{
 			IsDir: true,
 			Name:  fo.Name,
 			Path:  fo.PathDisplay,
 		}, nil
 	case *dbx.FileMetadata:
-		fi := metadata.(*dbx.FileMetadata)
+		fi := m
 		return &FileInfo{
 			IsDir:   false,
 			Name:    fi.Name,
 			Path:    fi.PathDisplay,
 			Size:    int64(fi.Size),
-			LastMod: fi.ClientModified,
+			LastMod: fromDBXTime(fi.ClientModified),
 		}, nil
 	}
 	err := fmt.Errorf("metadata is not folder and file. metadata=%s", metadata)
@@ -360,10 +370,11 @@ func (d *dropbox) pre(path *string) error {
 	return nil
 }
 
-// $HOME/hbg_config_$name.yamlからtokenを読み取るか、なければ作成してユーザーに入力を求めます
+// $HOME/hbg_token_dropbox_$name.json からtokenを読み取るか、
+// なければ作成してユーザーに入力を求めます。
 func loadTokenFromName(name string) (string, error) {
 	tokenFileName := fmt.Sprintf("hbg_token_%s_%s.json", "dropbox", name)
-	home, err := homedir.Dir()
+	home, err := os.UserHomeDir()
 	if err != nil {
 		err = fmt.Errorf("error at get user home directory: %w", err)
 		return "", err

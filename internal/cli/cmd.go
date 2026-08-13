@@ -1,4 +1,4 @@
-package cmd
+package cli
 
 import (
 	"fmt"
@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/mitchellh/go-homedir"
 	"github.com/mt3hr/hbg"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -39,6 +38,19 @@ type Config struct {
 
 var (
 	rootCmd = &cobra.Command{
+		Use:   "hbg",
+		Short: "ローカルとクラウドストレージの間でファイルをコピー・同期する",
+		Long: `hbg はローカルファイルシステムとクラウドストレージの間で
+ファイルをコピー・同期するためのコマンドラインツールです。
+
+対応しているストレージ:
+  local        ローカルファイルシステム
+  dropbox      Dropbox
+  googledrive  Google Drive
+
+ストレージは設定ファイル hbg_config.yaml で名前を付けて定義し、
+コマンドでは "名前:パス" の形式で指定します。`,
+		SilenceUsage: true,
 		PersistentPreRun: func(_ *cobra.Command, _ []string) {
 			err := loadConfig()
 			if err != nil {
@@ -145,7 +157,7 @@ func loadConfig() error {
 		exe, err := os.Executable()
 		if err != nil {
 			err = fmt.Errorf("error at get executable file path: %w", err)
-			log.Printf(err.Error())
+			log.Print(err)
 		} else {
 			v.AddConfigPath(filepath.Dir(exe))
 			configPaths = append(configPaths, filepath.Join(filepath.Dir(exe), configName+configExt))
@@ -154,10 +166,10 @@ func loadConfig() error {
 		v.AddConfigPath(".")
 		configPaths = append(configPaths, filepath.Join(".", configName+configExt))
 
-		home, err := homedir.Dir()
+		home, err := os.UserHomeDir()
 		if err != nil {
 			err = fmt.Errorf("error at get user home directory: %w", err)
-			log.Printf(err.Error())
+			log.Print(err)
 		} else {
 			v.AddConfigPath(home)
 			configPaths = append(configPaths, filepath.Join(home, configName+configExt))
@@ -178,10 +190,10 @@ func loadConfig() error {
 		// できなければカレントディレクトリにコンフィグファイルを作成する。
 		if configOpt == "" {
 			configDir := ""
-			home, err := homedir.Dir()
+			home, err := os.UserHomeDir()
 			if err != nil {
 				err = fmt.Errorf("error at get user home directory: %w", err)
-				log.Printf(err.Error())
+				log.Print(err)
 				configDir = "."
 			} else {
 				configDir = home

@@ -184,16 +184,18 @@ func TestNewHashUnsupported(t *testing.T) {
 
 func TestCleanPath(t *testing.T) {
 	tests := map[string]string{
-		"":             "/",
-		"/":            "/",
-		"a/b":          "/a/b",
-		"/a/b":         "/a/b",
-		"/a//b":        "/a/b",
-		"/a/./b":       "/a/b",
-		"/a/../b":      "/b",
-		"a\\b":         "/a/b",
-		"C:\\Users\\x": "/C:/Users/x",
-		"/a/b/":        "/a/b",
+		"":        "/",
+		"/":       "/",
+		"a/b":     "/a/b",
+		"/a/b":    "/a/b",
+		"/a//b":   "/a/b",
+		"/a/./b":  "/a/b",
+		"/a/../b": "/b",
+		"/a/b/":   "/a/b",
+		// 逆斜線は区切りではなく、名前の一部として扱う。
+		// クラウドストレージではファイル名に使えるふつうの文字なので、
+		// 区切りに読み替えると別の場所のファイルになってしまう。
+		"a\\b": "/a\\b",
 	}
 	for in, want := range tests {
 		if got := CleanPath(in); got != want {

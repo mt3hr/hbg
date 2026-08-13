@@ -251,13 +251,16 @@ func verifyHash(computed map[HashType]string, written *FileInfo, ht HashType, ds
 }
 
 // CleanPath はストレージのルートを起点としたパスを正規化します。
-// 区切りは "/" に統一し、先頭には "/" を補います。
+// 区切りは "/" で、先頭には "/" を補います。
+//
+// "\\" は区切りとして扱いません。多くのクラウドストレージでは
+// ファイル名に含められるふつうの文字なので、区切りに読み替えると
+// "a\b.txt" という名前のファイルが "a" の下の "b.txt" になってしまいます。
 //
 // ローカルファイルシステムのように OS のパス規則に従うストレージ
 // （Features.OSPath が真）には使わないでください。
 // ドライブレターが C:/... から /C:/... に壊れてしまいます。
 func CleanPath(p string) string {
-	p = strings.ReplaceAll(p, "\\", "/")
 	if p == "" {
 		return "/"
 	}

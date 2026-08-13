@@ -358,6 +358,13 @@ func testUnusualNames(t *testing.T, h Harness) {
 		"ドットで.始まる.複数.txt",
 	}
 
+	// OS のパス規則に従うストレージでは、区切りに使われるので試さない。
+	if !s.Features().OSPath {
+		// クラウドストレージではふつうの文字。区切りに読み替えて
+		// しまうと、別の場所のファイルとして扱われる。
+		names = append(names, `逆斜線\を含む.txt`)
+	}
+
 	illegal := s.Features().IllegalChars
 	for _, name := range names {
 		if illegal != "" && strings.ContainsAny(name, illegal) {

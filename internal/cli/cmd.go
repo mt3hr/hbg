@@ -8,7 +8,6 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/mt3hr/hbg"
 	"github.com/mt3hr/hbg/backend"
 	"github.com/mt3hr/hbg/backend/dropbox"
 	"github.com/mt3hr/hbg/backend/googledrive"
@@ -128,8 +127,8 @@ func (c DropboxConfig) accessToken() string {
 	return c.Token
 }
 
-func (c DropboxConfig) toStorageConfig() hbg.DropboxConfig {
-	return hbg.DropboxConfig{
+func (c DropboxConfig) toStorageConfig() dropbox.Config {
+	return dropbox.Config{
 		Name:        c.Name,
 		AppKey:      os.ExpandEnv(c.AppKey),
 		AccessToken: os.ExpandEnv(c.accessToken()),
@@ -144,13 +143,23 @@ type GoogleDriveConfig struct {
 	// ビルド時の埋め込み値が使われます。
 	ClientID     string `mapstructure:"client_id"`
 	ClientSecret string `mapstructure:"client_secret"`
+	// DriveID は共有ドライブのIDです。空ならマイドライブを使います。
+	DriveID string `mapstructure:"drive_id"`
+	// RootFolderID を指定すると、そのフォルダをルートとして扱います。
+	RootFolderID string `mapstructure:"root_folder_id"`
+	// NativeFiles は Google ドキュメントなどの扱いです。
+	// "error"（既定）か "skip" を指定します。
+	NativeFiles string `mapstructure:"native_files"`
 }
 
-func (c GoogleDriveConfig) toStorageConfig() hbg.GoogleDriveConfig {
-	return hbg.GoogleDriveConfig{
+func (c GoogleDriveConfig) toStorageConfig() googledrive.Config {
+	return googledrive.Config{
 		Name:         c.Name,
 		ClientID:     os.ExpandEnv(c.ClientID),
 		ClientSecret: os.ExpandEnv(c.ClientSecret),
+		DriveID:      os.ExpandEnv(c.DriveID),
+		RootFolderID: os.ExpandEnv(c.RootFolderID),
+		NativeFiles:  c.NativeFiles,
 	}
 }
 
@@ -244,8 +253,11 @@ func resolverFromConfig(c *Config) (*backend.Resolver, error) {
 			Name: cfg.Name,
 			Type: googledrive.Type,
 			Params: backend.Params{
-				"client_id":     os.ExpandEnv(cfg.ClientID),
-				"client_secret": os.ExpandEnv(cfg.ClientSecret),
+				"client_id":      os.ExpandEnv(cfg.ClientID),
+				"client_secret":  os.ExpandEnv(cfg.ClientSecret),
+				"drive_id":       os.ExpandEnv(cfg.DriveID),
+				"root_folder_id": os.ExpandEnv(cfg.RootFolderID),
+				"native_files":   cfg.NativeFiles,
 			},
 		})
 	}

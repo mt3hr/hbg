@@ -57,6 +57,15 @@ func (e *engine) scanDir(ctx context.Context, srcDir, dstDir, relDir string, tas
 
 	dstByName := e.indexByName(dstEntries)
 
+	// 同期での削除のために、コピー元にある名前を控えておく。
+	srcNames := make(map[string]struct{}, len(entries))
+	for _, entry := range entries {
+		srcNames[e.nameKey(entry.Name)] = struct{}{}
+	}
+	if err := e.collectExtraneous(ctx, dstEntries, srcNames, relDir); err != nil {
+		return err
+	}
+
 	for _, entry := range entries {
 		if err := ctx.Err(); err != nil {
 			return err

@@ -1,0 +1,36 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          version: "~> v2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # OAuth のクライアント識別子。設定していなくてもビルドは通ります。
+          # その場合、利用者が環境変数で指定することになります。
+          #
+          # PKCE を使うので、識別子だけでは何もできません。
+          # 秘密にできる性質のものではないため、ここに置いても問題ありません。
+          HBG_DROPBOX_APP_KEY: ${{ secrets.HBG_DROPBOX_APP_KEY }}
+          HBG_MICROSOFT_CLIENT_ID: ${{ secrets.HBG_MICROSOFT_CLIENT_ID }}

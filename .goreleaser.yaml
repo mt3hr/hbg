@@ -1,0 +1,74 @@
+# goreleaser の設定です。
+#
+# 手元で確かめる:
+#   goreleaser release --snapshot --clean
+#
+# タグを打って公開する:
+#   git tag v1.0.0 && git push origin v1.0.0
+#   （あとは GitHub Actions が行います）
+#
+# OAuth のクライアント識別子は -ldflags で埋め込めます。
+# 秘密にできる性質のものではないので、公開しても差し支えありません
+# （PKCE を使うため、識別子だけでは何もできません）。
+# 埋め込まない場合は、利用者が環境変数で指定します。
+version: 2
+
+project_name: hbg
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: hbg
+    main: ./cmd/hbg
+    binary: hbg
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - windows
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    ignore:
+      # Windows の arm64 は需要が薄いので作りません。
+      - goos: windows
+        goarch: arm64
+    ldflags:
+      - -s -w
+      - -X github.com/mt3hr/hbg/internal/cli.Version={{.Version}}
+      # クライアント識別子を埋め込む場合は、環境変数から渡します。
+      - -X github.com/mt3hr/hbg/internal/auth.DropboxAppKey={{.Env.HBG_DROPBOX_APP_KEY}}
+      - -X github.com/mt3hr/hbg/internal/auth.MicrosoftClientID={{.Env.HBG_MICROSOFT_CLIENT_ID}}
+
+archives:
+  - id: hbg
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+    files:
+      - README.md
+      - LICENSE
+
+checksum:
+  name_template: checksums.txt
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^試験:"
+      - "^docs:"
+      - "^chore:"
+
+release:
+  draft: false
+  prerelease: auto

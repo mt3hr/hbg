@@ -199,12 +199,16 @@ var (
 
 func init() {
 	rootCmd.AddCommand(copyCmd)
+	rootCmd.AddCommand(syncCmd)
+	rootCmd.AddCommand(moveCmd)
+	rootCmd.AddCommand(mkdirCmd)
 	rootCmd.AddCommand(removeCmd)
 	rootCmd.AddCommand(listCmd)
 	rootCmd.AddCommand(shellCmd)
 	rootCmd.AddCommand(configCmd)
 	rootCmd.AddCommand(authCmd)
 	rootCmd.AddCommand(checkCmd)
+	rootCmd.AddCommand(completionCmd)
 
 	rootPf := rootCmd.PersistentFlags()
 	rootPf.StringVar(&rootOpt.configfile, "config_file", "", "設定ファイルのパス")

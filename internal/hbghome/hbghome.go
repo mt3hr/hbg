@@ -13,9 +13,7 @@
 //	├── caches/              キャッシュ・再開情報
 //	└── shell_history        対話シェルの履歴
 //
-// 以前はこれらがホームディレクトリ直下や一時ディレクトリに散らばっていました
-// （$HOME/hbg_config.yaml、$HOME/hbg_token_dropbox_*.json、
-// $TEMP/hbg_shell_history）。Migrate がそれらを新しい配置へ移します。
+// hbg が読み書きするのはこの配置だけです。
 package hbghome
 
 import (

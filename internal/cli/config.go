@@ -4,14 +4,10 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 
 	"github.com/mt3hr/hbg/internal/hbghome"
 	"github.com/spf13/viper"
 )
-
-// legacyConfigName は旧レイアウトでの設定ファイル名です。
-const legacyConfigName = "hbg_config.yaml"
 
 // errConfigNotFound は設定ファイルが見つからなかったことを表します。
 var errConfigNotFound = errors.New("設定ファイルが見つかりません")
@@ -36,49 +32,20 @@ DefaultWorker: 2
 ` + defaultConfigFromDescriptors()
 }
 
-// configSearchPaths は設定ファイルを探す場所を、優先度の高い順に返します。
-//
-// 新しい配置（$HOME/hbg/configs/config.yaml）を最優先とし、
-// 旧レイアウトも後方互換のために探します。
-func configSearchPaths() ([]string, error) {
-	paths := []string{}
-
-	primary, err := hbghome.ConfigFile()
-	if err != nil {
-		return nil, err
-	}
-	paths = append(paths, primary)
-
-	// --- 以下は後方互換。見つかったら警告を出して読む ---
-
-	// 実行ファイルと同じ場所（USBメモリなどでの持ち運びを想定していたと思われる）
-	if exe, err := os.Executable(); err == nil {
-		paths = append(paths, filepath.Join(filepath.Dir(exe), legacyConfigName))
-	}
-	// カレントディレクトリ
-	paths = append(paths, filepath.Join(".", legacyConfigName))
-	// ホームディレクトリ直下
-	if home, err := os.UserHomeDir(); err == nil {
-		paths = append(paths, filepath.Join(home, legacyConfigName))
-	}
-
-	return paths, nil
-}
-
-// findConfigFile は最初に見つかった設定ファイルのパスを返します。
+// findConfigFile は設定ファイルのパスを返します。
 // 見つからない場合は errConfigNotFound を返します。
-func findConfigFile() (path string, legacy bool, err error) {
-	paths, err := configSearchPaths()
+//
+// 探すのは $HOME/hbg/configs/config.yaml（HBG_HOME で変えられる）だけです。
+// 置き場所が1つなら、読まれたのがどれかを考えずに済みます。
+func findConfigFile() (string, error) {
+	path, err := hbghome.ConfigFile()
 	if err != nil {
-		return "", false, err
+		return "", err
 	}
-
-	for i, p := range paths {
-		if _, err := os.Stat(p); err == nil {
-			return p, i > 0, nil
-		}
+	if _, err := os.Stat(path); err != nil {
+		return "", errConfigNotFound
 	}
-	return "", false, errConfigNotFound
+	return path, nil
 }
 
 // loadConfig は設定ファイルを読み込み、パッケージ変数 config に格納します。
@@ -94,11 +61,7 @@ func loadConfig() error {
 
 	configFile := getConfigFile()
 	if configFile == "" {
-		// 旧レイアウトのファイルがあっても、勝手には移動しない。
-		// 移動は取り消しづらい操作なので hbg config migrate で明示的に行う。
-		warnAboutLegacyFiles()
-
-		found, legacy, err := findConfigFile()
+		found, err := findConfigFile()
 		if err != nil {
 			if !errors.Is(err, errConfigNotFound) {
 				return err
@@ -108,11 +71,7 @@ func loadConfig() error {
 			if createErr != nil {
 				return createErr
 			}
-			found, legacy = created, false
-		}
-		if legacy {
-			warnf("非推奨の場所にある設定ファイルを読み込みました: %s\n"+
-				"        hbg config migrate で %s へ移せます", found, mustConfigFile())
+			found = created
 		}
 		configFile = found
 	}
@@ -156,21 +115,6 @@ func createInitialConfig() (string, error) {
 // loadedConfigFile は実際に読み込んだ設定ファイルのパスです。
 // hbg config path が表示に使います。
 var loadedConfigFile string
-
-// warnAboutLegacyFiles は、旧レイアウトのファイルが残っていることを知らせます。
-//
-// 移動は行いません。ユーザーのファイルを黙って動かすのは取り消しづらく、
-// HBG_HOME を一時的に別の場所へ向けている場合には特に事故になりやすいためです。
-// 実際の移動は hbg config migrate で明示的に行います。
-func warnAboutLegacyFiles() {
-	pending, err := hbghome.PendingMigrations()
-	if err != nil || len(pending) == 0 {
-		return
-	}
-
-	warnf("以前の場所に設定・認証情報が %d件残っています。hbg config migrate で %s 配下へ移せます",
-		len(pending), mustRoot())
-}
 
 func mustRoot() string {
 	root, err := hbghome.Root()

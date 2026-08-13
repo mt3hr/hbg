@@ -61,21 +61,6 @@ storages:
 
 `--config_file` で任意のパスを指定することもできます。
 
-### 古い書き方
-
-種類ごとに項目を分ける書き方も引き続き読めます。
-
-```yaml
-Local:
-  name: local
-Dropbox:
-  - name: dropbox
-```
-
-ただしこの書き方では、あとから追加したストレージ（SFTP など）を
-書き表せません。両方を混ぜて書けるので、既存の設定に `storages:` を
-足していけば全部を書き直さずに済みます。
-
 ### SFTP の指定
 
 ```yaml
@@ -285,8 +270,9 @@ secret_access_key: ...
 ### Google Drive の指定
 
 ```yaml
-GoogleDrive:
+storages:
   - name: 共有ドライブ
+    type: googledrive
     drive_id: ${DRIVE_ID}     # 共有ドライブのID。省略するとマイドライブ
     root_folder_id: ""        # 特定のフォルダをルートとして扱う
     native_files: error       # Google ドキュメントの扱い（error または skip）

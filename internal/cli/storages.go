@@ -9,14 +9,11 @@ import (
 	"github.com/mt3hr/hbg/backend"
 	"github.com/mt3hr/hbg/backend/dropbox"
 	"github.com/mt3hr/hbg/backend/googledrive"
-	"github.com/mt3hr/hbg/backend/local"
 	"github.com/mt3hr/hbg/backend/onedrive"
 	"github.com/spf13/cast"
 )
 
-// 設定ファイルには2つの書き方があります。
-//
-// 新しい書き方は、種別を type で指定してひとつの一覧に並べるものです。
+// ストレージは、種別を type で指定してひとつの一覧に並べて書きます。
 //
 //	storages:
 //	  - name: local
@@ -25,16 +22,8 @@ import (
 //	    type: sftp
 //	    host: ...
 //
-// 古い書き方は、種別ごとに別々の項目を持つものです。
-//
-//	Local:
-//	  name: local
-//	Dropbox:
-//	  - name: dropbox
-//
-// 古い書き方では、新しく足したストレージを書き表せません
-// （項目そのものが決め打ちなので）。既存の設定をそのまま使えるよう
-// 両方を受け付け、混ぜて書くこともできるようにしています。
+// 種別ごとの項目は type と name 以外そのまま Params へ入るので、
+// 新しいストレージを足してもここは変わりません。
 
 // StorageEntry は storages: の1件です。
 type StorageEntry struct {
@@ -60,8 +49,6 @@ func (e StorageEntry) params() backend.Params {
 }
 
 // storageEntries は設定に書かれたすべてのストレージを返します。
-//
-// 新しい書き方と古い書き方の両方を集めます。
 func storageEntries(c *Config) ([]backend.Entry, error) {
 	entries := []backend.Entry{}
 
@@ -80,47 +67,7 @@ func storageEntries(c *Config) ([]backend.Entry, error) {
 		})
 	}
 
-	entries = append(entries, legacyEntries(c)...)
 	return entries, nil
-}
-
-// legacyEntries は古い書き方の項目を集めます。
-func legacyEntries(c *Config) []backend.Entry {
-	entries := []backend.Entry{}
-
-	if c.Local.Name != "" {
-		entries = append(entries, backend.Entry{
-			Name: c.Local.Name,
-			Type: local.Type,
-		})
-	}
-
-	for _, cfg := range c.Dropbox {
-		entries = append(entries, backend.Entry{
-			Name: cfg.Name,
-			Type: dropbox.Type,
-			Params: backend.Params{
-				"app_key":      os.ExpandEnv(cfg.AppKey),
-				"access_token": os.ExpandEnv(cfg.accessToken()),
-			},
-		})
-	}
-
-	for _, cfg := range c.GoogleDrive {
-		entries = append(entries, backend.Entry{
-			Name: cfg.Name,
-			Type: googledrive.Type,
-			Params: backend.Params{
-				"client_id":      os.ExpandEnv(cfg.ClientID),
-				"client_secret":  os.ExpandEnv(cfg.ClientSecret),
-				"drive_id":       os.ExpandEnv(cfg.DriveID),
-				"root_folder_id": os.ExpandEnv(cfg.RootFolderID),
-				"native_files":   cfg.NativeFiles,
-			},
-		})
-	}
-
-	return entries
 }
 
 // findStorageEntry は名前からストレージの設定を探します。

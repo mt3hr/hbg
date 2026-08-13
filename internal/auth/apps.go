@@ -119,8 +119,9 @@ func setupInstructions(storageType string) string {
        account_info.read
   4. Settings タブの App key を設定ファイルに書く
 
-       Dropbox:
+       storages:
          - name: dropbox
+           type: dropbox
            app_key: ${HBG_DROPBOX_APP_KEY}
 
      または環境変数 HBG_DROPBOX_APP_KEY に設定する。
@@ -138,8 +139,9 @@ func setupInstructions(storageType string) string {
      - アプリケーションの種類: デスクトップアプリ
   5. 発行されたIDとシークレットを設定ファイルに書く
 
-       GoogleDrive:
+       storages:
          - name: googledrive
+           type: googledrive
            client_id: ${HBG_GOOGLE_CLIENT_ID}
            client_secret: ${HBG_GOOGLE_CLIENT_SECRET}
 

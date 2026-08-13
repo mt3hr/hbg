@@ -10,6 +10,7 @@ import (
 
 	"github.com/mt3hr/hbg/backend"
 	_ "github.com/mt3hr/hbg/backend/ftp"      // 種別 ftp を登録する
+	_ "github.com/mt3hr/hbg/backend/local"    // 種別 local を登録する
 	_ "github.com/mt3hr/hbg/backend/onedrive" // 種別 onedrive を登録する
 	_ "github.com/mt3hr/hbg/backend/s3"       // 種別 s3 を登録する
 	_ "github.com/mt3hr/hbg/backend/sftp"     // 種別 sftp を登録する
@@ -102,55 +103,7 @@ type Config struct {
 	DefaultWorker int
 
 	// Storages は種別を type で指定して並べたストレージの一覧です。
-	// 新しく足したストレージはこちらでしか書き表せません。
 	Storages []StorageEntry
-
-	// 以下は古い書き方です。storages と混ぜて書けます。
-	Dropbox     []DropboxConfig
-	GoogleDrive []GoogleDriveConfig
-	Local       struct {
-		Name string
-	}
-}
-
-// DropboxConfig は設定ファイルの Dropbox 1件ぶんです。
-type DropboxConfig struct {
-	Name string
-	// AppKey は Dropbox アプリのキーです。
-	// 省略時は環境変数 HBG_DROPBOX_APP_KEY やビルド時の埋め込み値が使われます。
-	AppKey string `mapstructure:"app_key"`
-	// AccessToken を指定すると OAuth の認可を行わずこのトークンを使います。
-	// 設定ファイルへの直接記述は避け、${環境変数} での指定を推奨します。
-	//
-	// 以前は Token というフィールドがありましたが、宣言されているだけで
-	// どこからも読まれていませんでした。後方互換のため引き続き受け付けます。
-	AccessToken string `mapstructure:"access_token"`
-	Token       string `mapstructure:"token"`
-}
-
-// accessToken は access_token と、後方互換の token のどちらかを返します。
-func (c DropboxConfig) accessToken() string {
-	if c.AccessToken != "" {
-		return c.AccessToken
-	}
-	return c.Token
-}
-
-// GoogleDriveConfig は設定ファイルの Google Drive 1件ぶんです。
-type GoogleDriveConfig struct {
-	Name string
-	// ClientID と ClientSecret は OAuth クライアントの識別情報です。
-	// 省略時は環境変数 HBG_GOOGLE_CLIENT_ID / HBG_GOOGLE_CLIENT_SECRET や
-	// ビルド時の埋め込み値が使われます。
-	ClientID     string `mapstructure:"client_id"`
-	ClientSecret string `mapstructure:"client_secret"`
-	// DriveID は共有ドライブのIDです。空ならマイドライブを使います。
-	DriveID string `mapstructure:"drive_id"`
-	// RootFolderID を指定すると、そのフォルダをルートとして扱います。
-	RootFolderID string `mapstructure:"root_folder_id"`
-	// NativeFiles は Google ドキュメントなどの扱いです。
-	// "error"（既定）か "skip" を指定します。
-	NativeFiles string `mapstructure:"native_files"`
 }
 
 var (
@@ -165,8 +118,8 @@ var (
   dropbox      Dropbox
   googledrive  Google Drive
 
-ストレージは設定ファイル hbg_config.yaml で名前を付けて定義し、
-コマンドでは "名前:パス" の形式で指定します。`,
+ストレージは設定ファイル（$HOME/hbg/configs/config.yaml）で名前を付けて
+定義し、コマンドでは "名前:パス" の形式で指定します。`,
 		SilenceUsage:  true,
 		SilenceErrors: true, // エラーの表示は Execute で行う
 		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {

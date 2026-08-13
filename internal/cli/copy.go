@@ -109,6 +109,7 @@ hbg copy --retry 3 --retry-wait 5s --retry-pass 2 local:C:/hoge dropbox:/hbg
 		progressBars int
 		stats        time.Duration
 		quiet        bool
+		jsonOut      bool
 	}{}
 )
 
@@ -148,6 +149,9 @@ func registerTransferFlags(fs *pflag.FlagSet) {
 	fs.StringArrayVarP(&copyOpt.ignore, "ignore", "i", defaultIgnores, "無視するファイル名（完全一致）")
 	fs.StringArrayVar(&copyOpt.include, "include", nil, "このパターンに一致するものだけを転送する")
 	fs.StringArrayVar(&copyOpt.exclude, "exclude", nil, "このパターンに一致するものを転送しない")
+	fs.BoolVar(&copyOpt.jsonOut, "json", false,
+		"結果を1行1件の JSON で標準出力へ流す（人向けの表示は標準エラーへ）")
+
 	fs.StringVar(&copyOpt.minSize, "min-size", "", "これより小さいファイルを転送しない（例: 1M）")
 	fs.StringVar(&copyOpt.maxSize, "max-size", "", "これより大きいファイルを転送しない（例: 1G）")
 
@@ -254,6 +258,21 @@ func runTransfer(cmd *cobra.Command, deleteExtraneous bool) error {
 		OnTransfer:     logTransferEvent(srcStorage.Type(), destStorage.Type()),
 	}
 
+	// --json のときは、機械向けの出力を標準出力へ流す。
+	// 人向けのまとめは出さない。混ざると読み取れなくなるため。
+	var jsonw *jsonWriter
+	if copyOpt.jsonOut {
+		jsonw = newJSONWriter(os.Stdout)
+
+		logEvent := opts.OnTransfer
+		emitEvent := jsonw.onTransfer(srcStorage.Name(), destStorage.Name())
+		opts.OnTransfer = func(ev transfer.TransferEvent) {
+			logEvent(ev)
+			emitEvent(ev)
+		}
+		opts.OnDecision = jsonw.onDecision()
+	}
+
 	pass := transfer.PassPolicy{
 		MaxPasses: copyOpt.retryPass + 1, // 初回 + やり直し回数
 		Wait:      copyOpt.retryPassWait,
@@ -262,7 +281,11 @@ func runTransfer(cmd *cobra.Command, deleteExtraneous bool) error {
 	result, err := transfer.RunWithPasses(ctx, opts, pass, &passReporter{r: reporter})
 	if result != nil {
 		hbglog.LogSummary(result.Transferred, result.Failed, result.Elapsed)
-		writeSummary(os.Stdout, result)
+		if jsonw != nil {
+			jsonw.summary(result)
+		} else {
+			writeSummary(os.Stdout, result)
+		}
 	}
 
 	if err != nil {

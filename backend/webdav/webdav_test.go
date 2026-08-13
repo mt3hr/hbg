@@ -129,12 +129,18 @@ func TestPutIsAtomic(t *testing.T) {
 		t.Error("中身の欠けたファイルが残っている")
 	}
 
-	entries, err := os.ReadDir(f.root)
-	if err != nil {
-		t.Fatalf("ReadDir: %v", err)
+	// 書きかけの片付けは、相手が受け取り終える前に消しにいくことも
+	// あるので確実ではない。残っても本来の場所は汚れないし、
+	// 一覧にも出ない、というところまでを保証する。
+	names := []string{}
+	if err := s.List(ctx, "/", func(fi storage.FileInfo) error {
+		names = append(names, fi.Name)
+		return nil
+	}); err != nil {
+		t.Fatalf("List: %v", err)
 	}
-	for _, e := range entries {
-		t.Errorf("後始末されていないファイルが残っている: %s", e.Name())
+	if len(names) != 0 {
+		t.Errorf("一覧 = %v, 何も見えないはず", names)
 	}
 }
 

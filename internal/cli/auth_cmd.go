@@ -12,6 +12,7 @@ import (
 	"github.com/mt3hr/hbg/backend"
 	"github.com/mt3hr/hbg/backend/dropbox"
 	"github.com/mt3hr/hbg/backend/googledrive"
+	"github.com/mt3hr/hbg/backend/onedrive"
 	"github.com/mt3hr/hbg/internal/auth"
 	"github.com/spf13/cobra"
 )
@@ -84,6 +85,12 @@ func loginTo(ctx context.Context, entry backend.Entry, opts auth.LoginOptions) e
 			Name:         entry.Name,
 			ClientID:     entry.Params.Get("client_id"),
 			ClientSecret: entry.Params.Get("client_secret"),
+		}, opts)
+	case onedrive.Type:
+		return onedrive.Login(ctx, onedrive.Config{
+			Name:     entry.Name,
+			ClientID: entry.Params.Get("client_id"),
+			Tenant:   entry.Params.Get("tenant"),
 		}, opts)
 	}
 	return fmt.Errorf("ストレージ %q（種別 %s）は認証を必要としません", entry.Name, entry.Type)

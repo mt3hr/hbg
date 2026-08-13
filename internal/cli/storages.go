@@ -10,6 +10,7 @@ import (
 	"github.com/mt3hr/hbg/backend/dropbox"
 	"github.com/mt3hr/hbg/backend/googledrive"
 	"github.com/mt3hr/hbg/backend/local"
+	"github.com/mt3hr/hbg/backend/onedrive"
 	"github.com/spf13/cast"
 )
 
@@ -156,7 +157,7 @@ func authRequiredEntries(c *Config) []backend.Entry {
 // needsAuth は、その種別が hbg auth login を必要とするかを返します。
 func needsAuth(storageType string) bool {
 	switch storageType {
-	case dropbox.Type, googledrive.Type:
+	case dropbox.Type, googledrive.Type, onedrive.Type:
 		return true
 	}
 	return false

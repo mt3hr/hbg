@@ -1,18 +1,14 @@
 package hbg
 
 import (
-	"context"
 	"fmt"
 	"io"
-	"os"
 	"path"
 	"path/filepath"
 	"time"
 
 	dbxapi "github.com/dropbox/dropbox-sdk-go-unofficial/v6/dropbox"
 	dbx "github.com/dropbox/dropbox-sdk-go-unofficial/v6/dropbox/files"
-	"github.com/google/uuid"
-	"golang.org/x/oauth2"
 )
 
 var (
@@ -44,22 +40,33 @@ func fromDBXTime(t dbxapi.DBXTime) time.Time {
 	return time.Time(t)
 }
 
+// DropboxConfig は Dropbox ストレージの設定です。
+type DropboxConfig struct {
+	// Name は設定ファイルで付けた名前です。コマンドで "名前:パス" として使います。
+	Name string
+	// AppKey は Dropbox アプリのキーです。
+	// 空の場合は環境変数やビルド時に埋め込まれた値が使われます。
+	AppKey string
+	// AccessToken を指定すると、OAuth の認可を行わずこのトークンを使います。
+	// アプリコンソールで発行した長期トークンを使う場合に指定してください。
+	// 設定ファイルへの直接記述は避け、${環境変数} での指定を推奨します。
+	AccessToken string
+}
+
 // NewDropbox .
 // dropboxを読み込みます。
-// nameは任意の名前です。
-// 初回起動時にコマンドライン入力を求められ、
-// $HOME/hbg_config_$name.yamlにキーが保存され、以後楽に接続できるようになります。
-func NewDropbox(name string) (Storage, error) {
-	token, err := loadTokenFromName(name)
+//
+// 保存済みのトークンを使って接続します。トークンがない場合はエラーを返すので、
+// hbg auth login <名前> で認証してください。
+// AccessToken が設定されている場合は、そちらを直接使います。
+func NewDropbox(cfg DropboxConfig) (Storage, error) {
+	client, err := newDropboxClient(cfg)
 	if err != nil {
-		err = fmt.Errorf("load token filed %s. %w", name, err)
-		return nil, err
+		return nil, fmt.Errorf("load dropbox failed %s. %w", cfg.Name, err)
 	}
-
-	client := dbx.New(dbxapi.Config{Token: token})
 	return &dropbox{
 		Client: client,
-		name:   name,
+		name:   cfg.Name,
 	}, nil
 }
 
@@ -368,62 +375,4 @@ func (d *dropbox) pre(path *string) error {
 		*path = ""
 	}
 	return nil
-}
-
-// $HOME/hbg_token_dropbox_$name.json からtokenを読み取るか、
-// なければ作成してユーザーに入力を求めます。
-func loadTokenFromName(name string) (string, error) {
-	tokenFileName := fmt.Sprintf("hbg_token_%s_%s.json", "dropbox", name)
-	home, err := os.UserHomeDir()
-	if err != nil {
-		err = fmt.Errorf("error at get user home directory: %w", err)
-		return "", err
-	}
-	exe, err := os.Executable()
-	if err != nil {
-		err = fmt.Errorf("error at get execute directory: %w", err)
-		return "", err
-	}
-	exe = filepath.Dir(exe)
-	current := "."
-
-	tok := &oauth2.Token{}
-	for _, tokenDir := range []string{home, exe, current} {
-		tokenFilePath := filepath.Join(tokenDir, tokenFileName)
-		tok, err = tokenFromFile(tokenFilePath)
-		if err == nil {
-			break
-		}
-	}
-	if err != nil {
-		authCfg := &oauth2.Config{
-			ClientID:     "9h7aole3khc6fb1",
-			ClientSecret: "2njvqglp3o74q0s",
-			Scopes:       []string{},
-			Endpoint: oauth2.Endpoint{
-				AuthURL:  "https://www.dropbox.com/oauth2/authorize",
-				TokenURL: "https://api.dropboxapi.com/oauth2/token",
-			},
-		}
-		authorizeURL := authCfg.AuthCodeURL(
-			uuid.New().String(),
-			oauth2.SetAuthURLParam("response_type", "code"),
-		)
-
-		fmt.Printf("%s: %s の初期化を行います。\n下記のURLを開いてhbgを許可し、表示されたキーをこの画面に貼り付けてください。\n%s\n", "dropbox", name, authorizeURL)
-		var code string
-		fmt.Scan(&code)
-		tok, err = authCfg.Exchange(context.Background(), code)
-		if err != nil {
-			err = fmt.Errorf("failed exchange auth cfg. %w", err)
-			return "", err
-		}
-		tokenFilePath := filepath.Join(home, tokenFileName)
-		err = saveToken(tokenFilePath, tok)
-		if err != nil {
-			err = fmt.Errorf("failed save token. %w", err)
-			return "", err
-		}
-	}
-	return tok.AccessToken, nil
 }

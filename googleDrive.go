@@ -2,20 +2,12 @@ package hbg
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"net/http"
-	"os"
 	"path"
-	"path/filepath"
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
-	"golang.org/x/oauth2"
-	"golang.org/x/oauth2/google"
-	"google.golang.org/api/drive/v3"
-	"google.golang.org/api/option"
+	drive "google.golang.org/api/drive/v3"
 )
 
 var googleDriveMimeTypeFolder = "application/vnd.google-apps.folder"
@@ -25,20 +17,33 @@ type googleDrive struct {
 	name string
 }
 
+// GoogleDriveConfig は Google Drive ストレージの設定です。
+type GoogleDriveConfig struct {
+	// Name は設定ファイルで付けた名前です。コマンドで "名前:パス" として使います。
+	Name string
+	// ClientID と ClientSecret は OAuth クライアントの識別情報です。
+	// 空の場合は環境変数やビルド時に埋め込まれた値が使われます。
+	ClientID     string
+	ClientSecret string
+}
+
 // NewGoogleDrive .
 // googledriveを読み込みます。
-// nameは任意の名前です。
-// 初回起動時にコマンドライン入力を求められ、
-// $HOME/hbg_config_$name.yamlにキーが保存され、以後楽に接続できるようになります。
-func NewGoogleDrive(name string) (Storage, error) {
-	srv, err := getGoogleDriveService(name)
+//
+// 保存済みのトークンを使って接続します。トークンがない場合はエラーを返すので、
+// hbg auth login <名前> で認証してください。
+//
+// 以前はここで対話的な認証を始めていましたが、使わないストレージの
+// 認証まで走ってしまううえ、コピーの途中で突然ブラウザが開くことになるため、
+// 認証は hbg auth login に分離しています。
+func NewGoogleDrive(cfg GoogleDriveConfig) (Storage, error) {
+	srv, err := newGoogleDriveService(cfg)
 	if err != nil {
-		err = fmt.Errorf("load google drive failed %s. %w", name, err)
-		return nil, err
+		return nil, fmt.Errorf("load google drive failed %s. %w", cfg.Name, err)
 	}
 	return &googleDrive{
 		srv:  srv,
-		name: name,
+		name: cfg.Name,
 	}, nil
 }
 
@@ -356,115 +361,4 @@ func (g *googleDrive) getFileByPath(filepath string) (*drive.File, error) {
 		}
 	}
 	return nil, fmt.Errorf("%s: %s は見つかりませんでした。", g.Type(), filepath)
-}
-
-// Retrieve a token, saves the token, then returns the generated client.
-func getClient(config *oauth2.Config, name string) (*http.Client, error) {
-	tokenFileName := fmt.Sprintf("hbg_token_%s_%s.json", "googledrive", name)
-	home, err := os.UserHomeDir()
-	if err != nil {
-		err = fmt.Errorf("error at get user home directory: %w", err)
-		return nil, err
-	}
-	exe, err := os.Executable()
-	if err != nil {
-		err = fmt.Errorf("error at get execute directory: %w", err)
-		return nil, err
-	}
-	exe = filepath.Dir(exe)
-	current := "."
-
-	// 保存済みのトークンを探す。
-	var tok *oauth2.Token
-	for _, tokenDir := range []string{home, exe, current} {
-		t, loadErr := tokenFromFile(filepath.Join(tokenDir, tokenFileName))
-		if loadErr == nil {
-			tok = t
-			break
-		}
-	}
-
-	if tok == nil {
-		// もとはこの分岐の中で tok を := により再宣言していたため、
-		// 取得したトークンは保存されるものの、返されるのは外側の
-		// 空のトークンだった。そのため初回の実行は必ず401になり、
-		// 2回目以降（保存済みトークンを読む経路）でしか動かなかった。
-		tok, err = authorizeGoogleDrive(config, name)
-		if err != nil {
-			return nil, err
-		}
-		if err := saveToken(filepath.Join(home, tokenFileName), tok); err != nil {
-			return nil, fmt.Errorf("failed save token. %w", err)
-		}
-	}
-
-	return config.Client(context.Background(), tok), nil
-}
-
-// authorizeGoogleDrive は対話的にユーザーの許可を得てトークンを取得します。
-//
-// 注意: この方式（OOBフロー）は Google が2023年1月に廃止しており、
-// 新規の認可は通りません。ローカルループバック方式への移行が必要です。
-func authorizeGoogleDrive(config *oauth2.Config, name string) (*oauth2.Token, error) {
-	// state は CSRF 対策のため、要求ごとにランダムでなければならない。
-	// もとは "state-token" という固定値だった。
-	state := uuid.New().String()
-	authURL := config.AuthCodeURL(state, oauth2.AccessTypeOffline)
-	fmt.Printf("%s: %s の初期化を行います。\n下記のURLを開いてhbgを許可し、表示されたキーをこの画面に貼り付けてください。\n%s\n", "googledrive", name, authURL)
-
-	// もとはここで log.Fatal を呼んでおり、ライブラリ側からプロセスを
-	// 終了させていた。hbg shell から使うとシェルごと落ちてしまう。
-	var authCode string
-	if _, err := fmt.Scan(&authCode); err != nil {
-		return nil, fmt.Errorf("認可コードの読み取りに失敗しました: %w", err)
-	}
-
-	tok, err := config.Exchange(context.Background(), authCode)
-	if err != nil {
-		return nil, fmt.Errorf("認可コードからトークンを取得できませんでした: %w", err)
-	}
-	return tok, nil
-}
-
-// Retrieves a token from a local file.
-func tokenFromFile(file string) (*oauth2.Token, error) {
-	f, err := os.Open(file)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-	tok := &oauth2.Token{}
-	err = json.NewDecoder(f).Decode(tok)
-	return tok, err
-}
-
-// Saves a token to a file path.
-func saveToken(path string, token *oauth2.Token) error {
-	fmt.Printf("Saving credential file to: %s\n", path)
-	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0600)
-	if err != nil {
-		err = fmt.Errorf("failed open file %s. %w", path, err)
-		return err
-	}
-	defer f.Close()
-	return json.NewEncoder(f).Encode(token)
-}
-
-func getGoogleDriveService(name string) (*drive.Service, error) {
-	b := []byte(`{"installed":{"client_id":"581224303741-8gad6gc0r1cdeam0r3rgmga140rgemr6.apps.googleusercontent.com","project_id":"hbg-go","auth_uri":"https://accounts.google.com/o/oauth2/auth","token_uri":"https://oauth2.googleapis.com/token","auth_provider_x509_cert_url":"https://www.googleapis.com/oauth2/v1/certs","client_secret":"_P9uv6G1xhQsToD9IJCsr3O7","redirect_uris":["urn:ietf:wg:oauth:2.0:oob","http://localhost"]}}`)
-	config, err := google.ConfigFromJSON(b, drive.DriveScope)
-	if err != nil {
-		// もとは log.Fatal でプロセスを終了させていた。
-		// ライブラリ側から終了させると hbg shell がシェルごと落ちる。
-		return nil, fmt.Errorf("クライアント設定を解釈できませんでした: %w", err)
-	}
-	client, err := getClient(config, name)
-	if err != nil {
-		err = fmt.Errorf("failed get client. %w", err)
-		return nil, err
-	}
-
-	// drive.New は非推奨。NewService を使う。
-	// 認証済みの *http.Client を渡すため、既定の認証情報探索は行わせない。
-	return drive.NewService(context.Background(), option.WithHTTPClient(client))
 }

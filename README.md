@@ -27,51 +27,120 @@ go install github.com/mt3hr/hbg/cmd/hbg@latest
 
 Go 1.25 以上が必要です。
 
+## ファイルの置き場所
+
+設定・認証情報・ログ・キャッシュはすべて `$HOME/hbg` の下にまとめて保存されます。
+環境変数 `HBG_HOME` で変更できます。
+
+```
+$HOME/hbg/
+├── configs/
+│   └── config.yaml     設定ファイル
+├── tokens/             OAuth トークン
+├── credentials/        ストレージ固有の資格情報
+├── logs/               ログ
+├── caches/             キャッシュ・再開情報
+└── shell_history       対話シェルの履歴
+```
+
+`hbg config path` で実際の場所を確認できます。
+
+以前のバージョンはこれらをホームディレクトリ直下や一時ディレクトリに置いていました。
+`hbg config migrate` で移行できます（移動元は `.migrated` を付けて残ります）。
+移行しないままでも、旧パスの設定ファイルは読み込まれます。
+
 ## 設定
 
-設定ファイルは `hbg_config.yaml` です。以下の順に探索されます。
+```console
+hbg config init
+```
 
-1. `--config_file` で指定したパス
-2. 実行ファイルのあるディレクトリ
-3. カレントディレクトリ
-4. ホームディレクトリ
-
-どこにも見つからない場合、ホームディレクトリに既定の設定ファイルが作成されます。
+で `$HOME/hbg/configs/config.yaml` に雛形を作成します。
 
 ```yaml
 DefaultWorker: 2
-local:
+
+Local:
   name: local
-dropbox:
+
+Dropbox:
   - name: dropbox
-googledrive:
+
+GoogleDrive:
   - name: googledrive
 ```
 
-- `DefaultWorker` は同時処理数です。**省略しないでください**（後述の「既知の制限」を参照）。
+- `DefaultWorker` は同時処理数です。`copy` の `-w` で上書きできます。
 - `name` はコマンドで `名前:パス` の形式で指定するときの名前です。
 - 使わないストレージの行は削除するかコメントアウトしてください。
 
 同じタイプに複数の名前を与えると、複数アカウントを使い分けられます。
 
 ```yaml
-dropbox:
+Dropbox:
   - name: dropbox_private
   - name: dropbox_work
 ```
 
-### 認証
+`--config_file` で任意のパスを指定することもできます。
 
-Dropbox / Google Drive は、その名前で初めて使うときに認証を求められます。
-表示された URL をブラウザで開き、得られたコードを貼り付けてください。
-取得したトークンはホームディレクトリに保存されます。
+## 認証
 
-- `$HOME/hbg_token_dropbox_<name>.json`
-- `$HOME/hbg_token_googledrive_<name>.json`
+```console
+hbg auth login <ストレージ名>    # ブラウザで認証する
+hbg auth status                  # 認証の状態を確認する
+hbg auth logout <ストレージ名>    # 保存されたトークンを削除する
+```
 
-> **Google Drive の認証は現在動作しません。**
-> Google が 2023 年 1 月にこの認証方式（OOB フロー）を廃止したためです。
-> ブラウザでのローカルリダイレクト方式への移行を予定しています。
+`auth login` はブラウザを開き、許可のあとリダイレクトされてくる認可コードを
+ローカルで受け取ります。取得したトークンは `$HOME/hbg/tokens` に保存され、
+期限が切れても自動的に更新されます。
+
+コピーの途中で認証が始まることはありません。未認証のストレージを使おうとすると
+エラーになるので、先に `auth login` を実行してください。
+
+### OAuth クライアントの用意
+
+hbg には認証情報が同梱されていません。ご自身でアプリを登録してください。
+未設定のまま `hbg auth login` を実行すると、手順が表示されます。
+
+**Dropbox** — [App Console](https://www.dropbox.com/developers/apps) で Scoped access のアプリを作成し、
+Redirect URI に `http://localhost:53682/callback`（および 53683、53684）を登録します。
+App key を設定ファイルか環境変数 `HBG_DROPBOX_APP_KEY` に設定してください。
+PKCE を使うため App secret は不要です。
+
+```yaml
+Dropbox:
+  - name: dropbox
+    app_key: ${HBG_DROPBOX_APP_KEY}
+```
+
+**Google Drive** — [Google Cloud Console](https://console.cloud.google.com/) でプロジェクトを作成し、
+Drive API を有効化して「デスクトップアプリ」の OAuth クライアント ID を発行します。
+
+```yaml
+GoogleDrive:
+  - name: googledrive
+    client_id: ${HBG_GOOGLE_CLIENT_ID}
+    client_secret: ${HBG_GOOGLE_CLIENT_SECRET}
+```
+
+> OAuth 同意画面の公開ステータスを「本番環境」にしてください。
+> 「テスト」のままだとリフレッシュトークンが7日で失効します。
+
+Google Drive 全体へのアクセスは「制限付きスコープ」に分類されており、
+アプリを一般公開するには年次のセキュリティ評価が必要です。
+そのため hbg では利用者自身のプロジェクトを使う方式にしています。
+
+### 長期トークンを直接使う
+
+アプリコンソールで発行した長期トークンを使うこともできます。
+
+```yaml
+Dropbox:
+  - name: dropbox
+    access_token: ${DROPBOX_TOKEN}
+```
 
 ## 使い方
 
@@ -123,14 +192,18 @@ hbg shell
 
 `cd` / `cs`（ストレージ切り替え）/ `pwd` / `ls` / `cp` / `rm` / `exit` が使えます。
 
+### config — 設定の操作
+
+```console
+hbg config init      # 設定ファイルの雛形を作る
+hbg config path      # 設定・認証情報・ログの場所を表示する
+hbg config migrate   # 旧レイアウトのファイルを $HOME/hbg 配下へ移す
+```
+
 ## 既知の制限
 
 現時点で把握している問題です。順次修正していきます。
 
-- **Google Drive の新規セットアップができません。** 認証方式（OOB フロー）が廃止されたためです。
-  ブラウザでのローカルリダイレクト方式への移行を予定しています。
-- **Dropbox のアクセストークンは約4時間で失効します。** その都度、再認証が必要です。
-  リフレッシュトークンへの対応を予定しています。
 - **転送の進捗・速度・残り時間は表示されません。** また、コピー対象の走査が終わるまで出力がありません。
   大きなディレクトリでは、しばらく何も表示されない状態が続きます。
 - **転送中に中断すると、コピー先に壊れたファイルが残ることがあります。**

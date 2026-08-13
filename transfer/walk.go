@@ -11,7 +11,21 @@ import (
 // scan は転送対象を探して tasks へ流します。
 //
 // 見つけたそばから送るので、走査の完了を待たずに転送が始まります。
-func (e *engine) scan(ctx context.Context, srcInfo storage.FileInfo, tasks chan<- task) error {
+//
+// srcRoots が複数になるのは、コピー元にワイルドカードを書いた場合です。
+// どれも同じ転送先ディレクトリの直下へ入るので、
+// dropbox:/photos/* は photos の中身を1階層深くせずに運べます。
+func (e *engine) scan(ctx context.Context, srcRoots []storage.FileInfo, tasks chan<- task) error {
+	for _, srcInfo := range srcRoots {
+		if err := e.scanRoot(ctx, srcInfo, tasks); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// scanRoot は転送の起点1つぶんを走査します。
+func (e *engine) scanRoot(ctx context.Context, srcInfo storage.FileInfo, tasks chan<- task) error {
 	if !srcInfo.IsDir {
 		// 1ファイルだけの転送
 		return e.scanFile(ctx, srcInfo, e.opts.DstDir, srcInfo.Name, tasks)

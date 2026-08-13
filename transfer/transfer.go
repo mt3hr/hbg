@@ -12,7 +12,6 @@ package transfer
 
 import (
 	"context"
-	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -217,9 +216,14 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 	// 転送元が存在しなければ、ここで失敗させる。
 	// 以前は一致するものがなくても「0件成功」で正常終了しており、
 	// パスを打ち間違えてもスクリプトからは成功に見えていた。
-	srcInfo, statErr := opts.Src.Stat(ctx, opts.SrcPath)
-	if statErr != nil {
-		return nil, fmt.Errorf("コピー元を確認できません %s:%s: %w", opts.Src.Type(), opts.SrcPath, statErr)
+	//
+	// コピー元にワイルドカードを書いた場合は、ここで一致したものが起点になる。
+	if err := checkGlobSupported(opts); err != nil {
+		return nil, err
+	}
+	srcRoots, srcErr := resolveSources(ctx, opts.Src, opts.SrcPath)
+	if srcErr != nil {
+		return nil, srcErr
 	}
 
 	// 呼び出し側の ctx と、中断のために自分で作る ctx を分けておく。
@@ -251,7 +255,7 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 
 	g.Go(func() error {
 		defer close(tasks)
-		return e.scan(gctx, *srcInfo, tasks)
+		return e.scan(gctx, srcRoots, tasks)
 	})
 
 	for range opts.Workers {

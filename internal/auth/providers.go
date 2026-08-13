@@ -102,6 +102,29 @@ func GoogleAuthCodeOptions() []oauth2.AuthCodeOption {
 	}
 }
 
+// MicrosoftRedirectPorts と MicrosoftRedirectHost は、Microsoft の認可で
+// 使うリダイレクト先です。Dropbox と同じ考え方で固定します。
+//
+// Microsoft はループバックなら任意のポートを許すとされていますが、
+// 「ポートだけは大目に見る」は提供元ごとに違ううえ、パスまで含めて
+// 一致を求められるかは登録の仕方でも変わります。
+// 登録した文字列そのものを使えば、どちらの流儀でも通ります。
+var MicrosoftRedirectPorts = []int{53685, 53686, 53687}
+
+// MicrosoftRedirectHost は Microsoft のリダイレクト URI に書くホストです。
+// Azure の登録画面が既定で示すのも localhost です。
+const MicrosoftRedirectHost = "localhost"
+
+// MicrosoftRedirectURIs は、アプリ登録時にリダイレクト URI へ入れる文字列です。
+// 認可要求に載せる URI と同じ組み立て方をするので、ずれません。
+func MicrosoftRedirectURIs() []string {
+	uris := make([]string, 0, len(MicrosoftRedirectPorts))
+	for _, port := range MicrosoftRedirectPorts {
+		uris = append(uris, RedirectURI(MicrosoftRedirectHost, port))
+	}
+	return uris
+}
+
 // MicrosoftScopes は hbg が必要とする Microsoft の権限です。
 //
 // offline_access がないとリフレッシュトークンが得られず、

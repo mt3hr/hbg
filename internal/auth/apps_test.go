@@ -1,6 +1,8 @@
 package auth
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -170,5 +172,76 @@ func TestDropboxRedirectURIsMatchInstructions(t *testing.T) {
 	}
 	if strings.Contains(instructions, "127.0.0.1") {
 		t.Error("登録手順に 127.0.0.1 が残っている")
+	}
+}
+
+// OneDrive にも登録手順があることを確かめます。
+//
+// 以前は空文字列を返していたため、未設定のときに
+// 「onedrive の OAuth クライアントが設定されていません。」とだけ出て、
+// 何を登録すればよいのか分からないままでした。
+func TestOneDriveInstructionsExist(t *testing.T) {
+	instructions := setupInstructions("onedrive")
+	if instructions == "" {
+		t.Fatal("onedrive の登録手順が空")
+	}
+	for _, want := range []string{"アプリの登録", "Files.ReadWrite.All", "offline_access", "HBG_MICROSOFT_CLIENT_ID"} {
+		if !strings.Contains(instructions, want) {
+			t.Errorf("手順に %q が無い", want)
+		}
+	}
+}
+
+// 認可で使う URI と、登録手順に載せた URI が一致することを確かめます。
+// Dropbox と同じ理由（外れると認可側でしか分からない）です。
+func TestMicrosoftRedirectURIsMatchInstructions(t *testing.T) {
+	instructions := setupInstructions("onedrive")
+
+	uris := MicrosoftRedirectURIs()
+	if len(uris) != len(MicrosoftRedirectPorts) {
+		t.Fatalf("URI が %d 個、ポートは %d 個", len(uris), len(MicrosoftRedirectPorts))
+	}
+	for _, uri := range uris {
+		if !strings.Contains(instructions, uri) {
+			t.Errorf("登録手順に %q が載っていない", uri)
+		}
+	}
+}
+
+// 認証を要する提供元には、必ず登録手順があることを確かめます。
+// 提供元を足したときに、案内だけ書き忘れるのを防ぎます。
+func TestEveryOAuthProviderHasInstructions(t *testing.T) {
+	for _, storageType := range []string{"dropbox", "googledrive", "onedrive"} {
+		if setupInstructions(storageType) == "" {
+			t.Errorf("%s の登録手順が空", storageType)
+		}
+	}
+}
+
+// 資料に載せたリダイレクト URI も、コードと一致していることを確かめます。
+//
+// 案内の文面は組み立てているのでずれませんが、資料は手で書くのでずれます。
+// 利用者は資料を見て登録するので、ずれれば同じ目に遭います。
+func TestDocsListSameRedirectURIs(t *testing.T) {
+	docs := []string{
+		filepath.Join("..", "..", "docs", "auth.md"),
+		filepath.Join("..", "..", "documents", "hbg_auth_document.md"),
+	}
+	wants := append(DropboxRedirectURIs(), MicrosoftRedirectURIs()...)
+
+	for _, doc := range docs {
+		body, err := os.ReadFile(doc)
+		if err != nil {
+			t.Fatalf("資料を読めません %s: %v", doc, err)
+		}
+		text := string(body)
+		for _, uri := range wants {
+			// 資料は「53682（および 53683、53684）」と省略して書くので、
+			// 完全な URI が1つと、残りはポート番号があれば足りる。
+			port := uri[strings.LastIndex(uri, ":")+1 : strings.LastIndex(uri, "/")]
+			if !strings.Contains(text, uri) && !strings.Contains(text, port) {
+				t.Errorf("%s に %s が載っていない", doc, uri)
+			}
+		}
 	}
 }

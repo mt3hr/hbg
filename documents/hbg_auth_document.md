@@ -52,6 +52,22 @@ Google Drive 全体へのアクセスは「制限付きスコープ」に分類�
 アプリを一般公開するには年次のセキュリティ評価が必要です。
 そのため hbg では利用者自身のプロジェクトを使う方式にしています。
 
+**OneDrive** — [Azure Portal](https://portal.azure.com) の「アプリの登録」で新規登録し、
+「認証」でプラットフォーム「モバイル アプリケーションとデスクトップ アプリケーション」を
+追加して、リダイレクト URI に `http://localhost:53685/callback`（および 53686、53687）を
+登録します。「パブリック クライアント フローを許可する」を「はい」にし、
+Microsoft Graph の委任されたアクセス許可 `offline_access` / `Files.ReadWrite.All` /
+`User.Read` を追加してください。
+
+```yaml
+storages:
+  - name: onedrive
+    type: onedrive
+    client_id: ${HBG_MICROSOFT_CLIENT_ID}
+```
+
+クライアント シークレットは不要です（PKCE を使います）。
+
 ### 長期トークンを直接使う
 
 アプリコンソールで発行した長期トークンを使うこともできます。

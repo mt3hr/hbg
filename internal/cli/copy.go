@@ -10,6 +10,7 @@ import (
 	"github.com/mt3hr/hbg/progress"
 	"github.com/mt3hr/hbg/transfer"
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 )
 
 var (
@@ -73,9 +74,25 @@ hbg copy --retry 3 --retry-wait 5s --retry-pass 2 local:C:/hoge dropbox:/hbg
 		destStorage string
 		destDirPath string
 
-		worker         int
+		worker int
+
+		// 比較の指定
 		updateDuration time.Duration
-		ignore         []string
+		modifyWindow   time.Duration
+		compare        string
+		checksum       bool
+		sizeOnly       bool
+		update         bool
+		overwrite      bool
+		ignoreExisting bool
+		verify         string
+
+		// 絞り込みの指定
+		ignore  []string
+		include []string
+		exclude []string
+		minSize string
+		maxSize string
 
 		retry         int
 		retryWait     time.Duration
@@ -106,11 +123,36 @@ var defaultIgnores = []string{
 	".localized",
 }
 
-func init() {
-	fs := copyCmd.Flags()
-	fs.StringArrayVarP(&copyOpt.ignore, "ignore", "i", defaultIgnores, "無視するファイル")
-	fs.DurationVar(&copyOpt.updateDuration, "update_duration", time.Second, "更新されたとみなす期間")
+// registerTransferFlags は copy と check で共通のフラグを登録します。
+//
+// 両方から同じ指定を受け付けたいので1箇所にまとめています。
+// コマンドごとの init に書き分けると、実行順序によっては
+// 片方でフラグが登録されないままになります。
+func registerTransferFlags(fs *pflag.FlagSet) {
 	fs.IntVarP(&copyOpt.worker, "worker", "w", 0, "同時処理数。0だとconfigファイルの値で動きます。")
+
+	fs.StringVar(&copyOpt.compare, "compare", "size,modtime",
+		"比較に使う項目 (size, modtime, hash をカンマ区切りで)")
+	fs.BoolVar(&copyOpt.checksum, "checksum", false, "内容のハッシュで比較する (--compare size,hash と同じ)")
+	fs.BoolVar(&copyOpt.sizeOnly, "size-only", false, "サイズだけで比較する (--compare size と同じ)")
+	fs.DurationVar(&copyOpt.modifyWindow, "modify-window", 0,
+		"この時間以内の更新時刻の差は同一とみなす（0で自動）")
+	fs.DurationVar(&copyOpt.updateDuration, "update_duration", 0,
+		"--modify-window の古い名前")
+	fs.BoolVar(&copyOpt.update, "update", true, "コピー先のほうが新しい場合は上書きしない")
+	fs.BoolVar(&copyOpt.overwrite, "overwrite", false, "コピー先のほうが新しくても上書きする")
+	fs.BoolVar(&copyOpt.ignoreExisting, "ignore-existing", false, "コピー先にあるものは内容を問わず転送しない")
+	fs.StringVar(&copyOpt.verify, "verify", "auto",
+		"転送後の内容の検証 (auto, always, never)")
+
+	fs.StringArrayVarP(&copyOpt.ignore, "ignore", "i", defaultIgnores, "無視するファイル名（完全一致）")
+	fs.StringArrayVar(&copyOpt.include, "include", nil, "このパターンに一致するものだけを転送する")
+	fs.StringArrayVar(&copyOpt.exclude, "exclude", nil, "このパターンに一致するものを転送しない")
+	fs.StringVar(&copyOpt.minSize, "min-size", "", "これより小さいファイルを転送しない（例: 1M）")
+	fs.StringVar(&copyOpt.maxSize, "max-size", "", "これより大きいファイルを転送しない（例: 1G）")
+
+	// 古い名前は残すが、案内では出さない。
+	_ = fs.MarkDeprecated("update_duration", "--modify-window を使ってください")
 
 	fs.IntVar(&copyOpt.retry, "retry", 3, "1ファイルの転送に失敗したときの再試行回数（0で無効）")
 	fs.DurationVar(&copyOpt.retryWait, "retry-wait", 5*time.Second, "再試行までの待ち時間")
@@ -130,6 +172,10 @@ func init() {
 	fs.DurationVar(&copyOpt.stats, "stats", 30*time.Second,
 		"進捗バーを使わないときに集計を表示する間隔（0で表示しない）")
 	fs.BoolVarP(&copyOpt.quiet, "quiet", "q", false, "進捗を表示しない")
+}
+
+func init() {
+	registerTransferFlags(copyCmd.Flags())
 }
 
 func runCopy(cmd *cobra.Command, _ []string) error {
@@ -163,14 +209,29 @@ func runCopy(cmd *cobra.Command, _ []string) error {
 	}
 	defer reporter.Close()
 
+	compare, err := buildComparePolicy()
+	if err != nil {
+		return withExitCode(ExitUsage, err)
+	}
+	filter, err := buildFilter()
+	if err != nil {
+		return withExitCode(ExitUsage, err)
+	}
+	verify, ok := transfer.ParseVerifyMode(copyOpt.verify)
+	if !ok {
+		return withExitCode(ExitUsage, fmt.Errorf("--verify の指定が不正です: %q（%s のいずれか）",
+			copyOpt.verify, strings.Join(transfer.VerifyModeNames(), ", ")))
+	}
+
 	opts := transfer.Options{
 		Src:     srcStorage,
 		Dst:     destStorage,
 		SrcPath: copyOpt.srcPath,
 		DstDir:  copyOpt.destDirPath,
 		Workers: copyOpt.worker,
-		Compare: transfer.ComparePolicy{ModifyWindow: copyOpt.updateDuration},
-		Ignore:  copyOpt.ignore,
+		Compare: compare,
+		Filter:  filter,
+		Verify:  verify,
 		Retry: transfer.RetryPolicy{
 			MaxAttempts: copyOpt.retry + 1, // 初回 + 再試行回数
 			Wait:        copyOpt.retryWait,

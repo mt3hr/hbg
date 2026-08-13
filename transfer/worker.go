@@ -91,6 +91,7 @@ func (e *engine) copyOne(ctx context.Context, tracker progress.FileTracker, srcP
 	}
 
 	_, err := storage.Copy(ctx, e.opts.Src, srcPath, e.opts.Dst, dstPath, storage.CopyOptions{
+		VerifyHash: e.verifyHash,
 		Wrap: func(r io.Reader) io.Reader {
 			// 進捗の計測と帯域の制限を、読み取りの流れに割り込ませる。
 			// ストレージの実装はどちらのことも知らない。

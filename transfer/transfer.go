@@ -38,8 +38,11 @@ type Options struct {
 
 	// Compare は転送の要否を判断する規則です。
 	Compare ComparePolicy
-	// Ignore は名前が一致したら転送しないファイル名です。
-	Ignore []string
+	// Filter は転送対象の絞り込みです。nil ならすべて対象。
+	Filter *Filter
+
+	// Verify は転送後の内容の検証方法です。
+	Verify VerifyMode
 
 	// Retry はファイル単位の再試行の設定です。
 	Retry RetryPolicy
@@ -63,6 +66,47 @@ type Options struct {
 	// OnTransfer は1ファイルの処理が終わるたびに呼ばれます。
 	// ログの記録に使います。
 	OnTransfer func(TransferEvent)
+
+	// OnDecision は転送の要否を判断するたびに呼ばれます。
+	// hbg check のように、判断だけを一覧したい場合に使います。
+	OnDecision func(DecisionEvent)
+}
+
+// VerifyMode は転送後の検証方法です。
+type VerifyMode string
+
+const (
+	// VerifyAuto は、追加の入出力が要らない場合にだけ検証します。
+	VerifyAuto VerifyMode = "auto"
+	// VerifyAlways は必ず検証します。
+	VerifyAlways VerifyMode = "always"
+	// VerifyNever は検証しません（サイズの一致は常に確かめます）。
+	VerifyNever VerifyMode = "never"
+)
+
+// ParseVerifyMode は文字列から検証方法を求めます。
+func ParseVerifyMode(s string) (VerifyMode, bool) {
+	switch VerifyMode(s) {
+	case VerifyAuto, VerifyAlways, VerifyNever:
+		return VerifyMode(s), true
+	}
+	return "", false
+}
+
+// VerifyModeNames は指定できる値を返します。
+func VerifyModeNames() []string {
+	return []string{string(VerifyAuto), string(VerifyAlways), string(VerifyNever)}
+}
+
+// DecisionEvent は1ファイルの転送要否の判断です。
+type DecisionEvent struct {
+	// Path はコピー元の起点からの相対パスです。
+	Path string
+	Size int64
+	// Action は転送するかどうかです。
+	Action Action
+	// Reason は判断の理由です。
+	Reason string
 }
 
 // TransferEvent は1ファイルの処理結果です。
@@ -100,6 +144,7 @@ type task struct {
 	srcPath string
 	dstDir  string
 	name    string
+	relPath string
 	size    int64
 }
 
@@ -109,6 +154,9 @@ type engine struct {
 	reporter progress.Reporter
 	limits   *limiterSet
 	bw       *bandwidthLimiter
+	comparer *Comparer
+	// verifyHash は転送後の検証に使うハッシュです。使わない場合は空です。
+	verifyHash storage.HashType
 
 	// 走査の途中経過
 	scanDirs  atomic.Int64
@@ -138,13 +186,24 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 	if opts.Reporter == nil {
 		opts.Reporter = progress.NewNop()
 	}
+	if opts.Verify == "" {
+		opts.Verify = VerifyAuto
+	}
+	if len(opts.Compare.Fields) == 0 {
+		opts.Compare = DefaultComparePolicy()
+	}
+
+	comparer, err := NewComparer(opts.Compare, opts.Src, opts.Dst)
+	if err != nil {
+		return nil, err
+	}
 
 	// 転送元が存在しなければ、ここで失敗させる。
 	// 以前は一致するものがなくても「0件成功」で正常終了しており、
 	// パスを打ち間違えてもスクリプトからは成功に見えていた。
-	srcInfo, err := opts.Src.Stat(ctx, opts.SrcPath)
-	if err != nil {
-		return nil, fmt.Errorf("コピー元を確認できません %s:%s: %w", opts.Src.Type(), opts.SrcPath, err)
+	srcInfo, statErr := opts.Src.Stat(ctx, opts.SrcPath)
+	if statErr != nil {
+		return nil, fmt.Errorf("コピー元を確認できません %s:%s: %w", opts.Src.Type(), opts.SrcPath, statErr)
 	}
 
 	// 呼び出し側の ctx と、中断のために自分で作る ctx を分けておく。
@@ -161,7 +220,9 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 		bw:       newBandwidthLimiter(opts.BandwidthLimit),
 		madeDirs: map[string]struct{}{},
 		abort:    cancel,
+		comparer: comparer,
 	}
+	e.verifyHash = resolveVerifyHash(opts, comparer)
 
 	started := time.Now()
 	e.reporter.ScanStarted()
@@ -213,6 +274,43 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 		return &result, waitErr
 	}
 	return &result, nil
+}
+
+// resolveVerifyHash は転送後の検証に使うハッシュを決めます。
+//
+// auto では、追加の入出力なしに検証できる場合だけ使います。
+// 転送しながらコピー元のハッシュを計算し、書き込み後に返ってくる
+// 値と突き合わせる形なので、余分な読み書きは発生しません。
+func resolveVerifyHash(opts Options, comparer *Comparer) storage.HashType {
+	switch opts.Verify {
+	case VerifyNever:
+		return ""
+	case VerifyAlways:
+		if ht, ok := commonHash(opts.Src, opts.Dst); ok {
+			return ht
+		}
+		return ""
+	}
+
+	// auto: 比較にハッシュを使っているなら、それをそのまま検証にも使う。
+	if ht := comparer.HashType(); ht != "" {
+		return ht
+	}
+	// 書き込み先がメタデータとしてハッシュを返せる場合も、
+	// 追加の入出力なしに検証できる。
+	if f := opts.Dst.Features(); f != nil && len(f.Hashes) > 0 {
+		if ht, ok := commonHash(opts.Src, opts.Dst); ok {
+			return ht
+		}
+	}
+	return ""
+}
+
+// notifyDecision は転送要否の判断を呼び出し側へ伝えます。
+func (e *engine) notifyDecision(ev DecisionEvent) {
+	if e.opts.OnDecision != nil {
+		e.opts.OnDecision(ev)
+	}
 }
 
 // recordSuccess は成功を記録します。

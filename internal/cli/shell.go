@@ -463,7 +463,11 @@ var (
 						destPath := destSpl[1]
 						// もとは空のスライスに //TODO と書かれており、
 						// シェルの cp だけ無視リストが効いていなかった。
-						ignores := defaultIgnores
+						filter, err := transfer.NewFilter(transfer.FilterSpec{Ignore: defaultIgnores})
+						if err != nil {
+							fmt.Println(err.Error())
+							continue Loop
+						}
 
 						srcPath, err = pathResolute(srcStorage, srcPath, false)
 						if err != nil {
@@ -486,7 +490,7 @@ var (
 							DstDir:   destPath,
 							Workers:  1,
 							Compare:  transfer.DefaultComparePolicy(),
-							Ignore:   ignores,
+							Filter:   filter,
 							Retry:    transfer.DefaultRetryPolicy(),
 							Reporter: progress.NewPlain(progress.PlainOptions{}),
 						})

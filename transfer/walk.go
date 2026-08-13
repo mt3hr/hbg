@@ -3,7 +3,6 @@ package transfer
 import (
 	"context"
 	"path"
-	"slices"
 	"strings"
 
 	"github.com/mt3hr/hbg/storage"
@@ -15,18 +14,20 @@ import (
 func (e *engine) scan(ctx context.Context, srcInfo storage.FileInfo, tasks chan<- task) error {
 	if !srcInfo.IsDir {
 		// 1ファイルだけの転送
-		return e.scanFile(ctx, srcInfo, e.opts.DstDir, tasks)
+		return e.scanFile(ctx, srcInfo, e.opts.DstDir, srcInfo.Name, tasks)
 	}
 
 	// ディレクトリを転送するときは、転送先にその名前のディレクトリを作る。
 	// hbg copy local:/a/photos dropbox:/backup なら
 	// dropbox:/backup/photos に入る。
 	dstDir := path.Join(e.opts.DstDir, srcInfo.Name)
-	return e.scanDir(ctx, srcInfo.Path, dstDir, tasks)
+	return e.scanDir(ctx, srcInfo.Path, dstDir, "", tasks)
 }
 
 // scanDir はディレクトリを再帰的に走査します。
-func (e *engine) scanDir(ctx context.Context, srcDir, dstDir string, tasks chan<- task) error {
+//
+// relDir はコピー元の起点からの相対パスです。絞り込みに使います。
+func (e *engine) scanDir(ctx context.Context, srcDir, dstDir, relDir string, tasks chan<- task) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -54,32 +55,27 @@ func (e *engine) scanDir(ctx context.Context, srcDir, dstDir string, tasks chan<
 
 	e.scanDirs.Add(1)
 
-	// 転送先の中身を名前で引けるようにする。
-	dstByName := make(map[string]storage.FileInfo, len(dstEntries))
-	for _, entry := range dstEntries {
-		key := entry.Name
-		if f := e.opts.Dst.Features(); f != nil && f.CaseInsensitive {
-			key = strings.ToLower(key)
-		}
-		dstByName[key] = entry
-	}
-
-	compare := e.opts.Compare
-	compare.ModifyWindow = resolveModifyWindow(compare.ModifyWindow, e.opts.Src, e.opts.Dst)
+	dstByName := e.indexByName(dstEntries)
 
 	for _, entry := range entries {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if e.ignored(entry.Name) {
+
+		rel := path.Join(relDir, entry.Name)
+
+		if entry.IsDir {
+			if !e.opts.Filter.MatchDir(rel) {
+				continue
+			}
+			child := path.Join(dstDir, entry.Name)
+			if err := e.scanDir(ctx, entry.Path, child, rel, tasks); err != nil {
+				return err
+			}
 			continue
 		}
 
-		if entry.IsDir {
-			child := path.Join(dstDir, entry.Name)
-			if err := e.scanDir(ctx, entry.Path, child, tasks); err != nil {
-				return err
-			}
+		if !e.opts.Filter.Match(rel, entry.Size) {
 			continue
 		}
 
@@ -89,34 +85,22 @@ func (e *engine) scanDir(ctx context.Context, srcDir, dstDir string, tasks chan<
 		}
 		e.reporter.ScanProgress(e.scanDirs.Load(), e.scanFiles.Load(), e.scanBytes.Load())
 
-		lookupName := entry.Name
-		if f := e.opts.Dst.Features(); f != nil && f.CaseInsensitive {
-			lookupName = strings.ToLower(lookupName)
-		}
-		if compare.Decide(storage.FileInfo{
-			Name:    lookupName,
-			Size:    entry.Size,
-			ModTime: entry.ModTime,
-		}, dstByName) == ActionSkip {
-			e.recordSkip(entry.Size)
-			e.reporter.Skipped(entry.Name, entry.Size)
-			continue
-		}
-
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case tasks <- task{srcPath: entry.Path, dstDir: dstDir, name: entry.Name, size: entry.Size}:
+		if err := e.considerFile(ctx, entry, dstDir, rel, dstByName, tasks); err != nil {
+			return err
 		}
 	}
 	return nil
 }
 
 // scanFile は1ファイルだけを対象にします。
-func (e *engine) scanFile(ctx context.Context, info storage.FileInfo, dstDir string, tasks chan<- task) error {
+func (e *engine) scanFile(ctx context.Context, info storage.FileInfo, dstDir, rel string, tasks chan<- task) error {
 	dstEntries, err := e.ensureDir(ctx, dstDir)
 	if err != nil {
 		return err
+	}
+
+	if !e.opts.Filter.Match(rel, info.Size) {
+		return nil
 	}
 
 	e.scanFiles.Add(1)
@@ -125,31 +109,72 @@ func (e *engine) scanFile(ctx context.Context, info storage.FileInfo, dstDir str
 	}
 	e.reporter.ScanProgress(0, 1, e.scanBytes.Load())
 
-	dstByName := make(map[string]storage.FileInfo, len(dstEntries))
-	for _, entry := range dstEntries {
-		dstByName[entry.Name] = entry
+	return e.considerFile(ctx, info, dstDir, rel, e.indexByName(dstEntries), tasks)
+}
+
+// considerFile は1ファイルの転送要否を判断し、必要なら転送の指示を出します。
+func (e *engine) considerFile(
+	ctx context.Context,
+	srcInfo storage.FileInfo,
+	dstDir, rel string,
+	dstByName map[string]storage.FileInfo,
+	tasks chan<- task,
+) error {
+	var dstInfo *storage.FileInfo
+	if found, ok := dstByName[e.nameKey(srcInfo.Name)]; ok {
+		dstInfo = &found
 	}
 
-	compare := e.opts.Compare
-	compare.ModifyWindow = resolveModifyWindow(compare.ModifyWindow, e.opts.Src, e.opts.Dst)
+	action, reason, err := e.comparer.Decide(ctx, srcInfo, dstInfo)
+	if err != nil {
+		// 判断に失敗した場合は、安全側に倒して転送する。
+		e.reporter.Logf("警告: %s の判断に失敗したため転送します: %v", rel, err)
+		action = ActionCopy
+	}
 
-	if compare.Decide(info, dstByName) == ActionSkip {
-		e.recordSkip(info.Size)
-		e.reporter.Skipped(info.Name, info.Size)
+	e.notifyDecision(DecisionEvent{
+		Path:   rel,
+		Size:   srcInfo.Size,
+		Action: action,
+		Reason: reason,
+	})
+
+	if action == ActionSkip {
+		e.recordSkip(srcInfo.Size)
+		e.reporter.Skipped(srcInfo.Name, srcInfo.Size)
 		return nil
 	}
 
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
-	case tasks <- task{srcPath: info.Path, dstDir: dstDir, name: info.Name, size: info.Size}:
+	case tasks <- task{
+		srcPath: srcInfo.Path,
+		dstDir:  dstDir,
+		name:    srcInfo.Name,
+		relPath: rel,
+		size:    srcInfo.Size,
+	}:
 	}
 	return nil
 }
 
-// ignored は、その名前が転送対象外かを返します。
-func (e *engine) ignored(name string) bool {
-	return slices.Contains(e.opts.Ignore, name)
+// indexByName は転送先の一覧を名前で引けるようにします。
+func (e *engine) indexByName(entries []storage.FileInfo) map[string]storage.FileInfo {
+	out := make(map[string]storage.FileInfo, len(entries))
+	for _, entry := range entries {
+		out[e.nameKey(entry.Name)] = entry
+	}
+	return out
+}
+
+// nameKey は照合に使う名前を返します。
+// 大文字小文字を区別しないストレージでは小文字に揃えます。
+func (e *engine) nameKey(name string) string {
+	if f := e.opts.Dst.Features(); f != nil && f.CaseInsensitive {
+		return strings.ToLower(name)
+	}
+	return name
 }
 
 // ensureDir は転送先のディレクトリを用意し、その中身を返します。

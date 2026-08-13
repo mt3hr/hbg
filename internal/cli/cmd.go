@@ -67,15 +67,55 @@ const defaultWorker = 2
 // コンフィグファイルのデータモデル
 type Config struct {
 	DefaultWorker int
-	Dropbox       []struct {
-		Name  string
-		Token string
-	}
-	GoogleDrive []struct {
+	Dropbox       []DropboxConfig
+	GoogleDrive   []GoogleDriveConfig
+	Local         struct {
 		Name string
 	}
-	Local struct {
-		Name string
+}
+
+// DropboxConfig は設定ファイルの Dropbox 1件ぶんです。
+type DropboxConfig struct {
+	Name string
+	// AppKey は Dropbox アプリのキーです。
+	// 省略時は環境変数 HBG_DROPBOX_APP_KEY やビルド時の埋め込み値が使われます。
+	AppKey string `mapstructure:"app_key"`
+	// AccessToken を指定すると OAuth の認可を行わずこのトークンを使います。
+	// 設定ファイルへの直接記述は避け、${環境変数} での指定を推奨します。
+	//
+	// 以前は Token というフィールドがありましたが、宣言されているだけで
+	// どこからも読まれていませんでした。後方互換のため引き続き受け付けます。
+	AccessToken string `mapstructure:"access_token"`
+	Token       string `mapstructure:"token"`
+}
+
+func (c DropboxConfig) toStorageConfig() hbg.DropboxConfig {
+	token := c.AccessToken
+	if token == "" {
+		token = c.Token
+	}
+	return hbg.DropboxConfig{
+		Name:        c.Name,
+		AppKey:      os.ExpandEnv(c.AppKey),
+		AccessToken: os.ExpandEnv(token),
+	}
+}
+
+// GoogleDriveConfig は設定ファイルの Google Drive 1件ぶんです。
+type GoogleDriveConfig struct {
+	Name string
+	// ClientID と ClientSecret は OAuth クライアントの識別情報です。
+	// 省略時は環境変数 HBG_GOOGLE_CLIENT_ID / HBG_GOOGLE_CLIENT_SECRET や
+	// ビルド時の埋め込み値が使われます。
+	ClientID     string `mapstructure:"client_id"`
+	ClientSecret string `mapstructure:"client_secret"`
+}
+
+func (c GoogleDriveConfig) toStorageConfig() hbg.GoogleDriveConfig {
+	return hbg.GoogleDriveConfig{
+		Name:         c.Name,
+		ClientID:     os.ExpandEnv(c.ClientID),
+		ClientSecret: os.ExpandEnv(c.ClientSecret),
 	}
 }
 
@@ -124,6 +164,7 @@ func init() {
 	rootCmd.AddCommand(listCmd)
 	rootCmd.AddCommand(shellCmd)
 	rootCmd.AddCommand(configCmd)
+	rootCmd.AddCommand(authCmd)
 
 	rootPf := rootCmd.PersistentFlags()
 	rootPf.StringVar(&rootOpt.configfile, "config_file", "", "設定ファイルのパス")
@@ -137,14 +178,11 @@ func storageMapFromConfig(c *Config) (map[string]hbg.Storage, error) {
 
 	// dropboxの読み込み
 	for _, dbxCfg := range c.Dropbox {
-		dropbox, err := hbg.NewDropbox(dbxCfg.Name)
-		if err != nil {
-			err = fmt.Errorf("failed load dropbox %s. %w", dbxCfg.Name, err)
-			return nil, err
+		if _, exist := storages[dbxCfg.Name]; exist {
+			return nil, fmt.Errorf("ストレージ名が重複しています: '%s'", dbxCfg.Name)
 		}
-		_, exist := storages[dbxCfg.Name]
-		if exist {
-			err := fmt.Errorf("confrict name of dropbox storage '%s'", dbxCfg.Name)
+		dropbox, err := hbg.NewDropbox(dbxCfg.toStorageConfig())
+		if err != nil {
 			return nil, err
 		}
 		storages[dbxCfg.Name] = dropbox
@@ -152,14 +190,11 @@ func storageMapFromConfig(c *Config) (map[string]hbg.Storage, error) {
 
 	// googledriveの読み込み
 	for _, gdvCfg := range c.GoogleDrive {
-		googleDrive, err := hbg.NewGoogleDrive(gdvCfg.Name)
-		if err != nil {
-			err = fmt.Errorf("failed load google drive %s. %w", gdvCfg.Name, err)
-			return nil, err
+		if _, exist := storages[gdvCfg.Name]; exist {
+			return nil, fmt.Errorf("ストレージ名が重複しています: '%s'", gdvCfg.Name)
 		}
-		_, exist := storages[gdvCfg.Name]
-		if exist {
-			err := fmt.Errorf("confrict name of google drive storage '%s'", gdvCfg.Name)
+		googleDrive, err := hbg.NewGoogleDrive(gdvCfg.toStorageConfig())
+		if err != nil {
 			return nil, err
 		}
 		storages[gdvCfg.Name] = googleDrive

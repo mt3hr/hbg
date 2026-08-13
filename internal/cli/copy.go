@@ -87,6 +87,11 @@ hbg copy --retry 3 --retry-wait 5s --retry-pass 2 local:C:/hoge dropbox:/hbg
 		bwLimit   string
 		dryRun    bool
 		maxErrors int
+
+		progress     string
+		progressBars int
+		stats        time.Duration
+		quiet        bool
 	}{}
 )
 
@@ -117,6 +122,14 @@ func init() {
 	fs.StringVar(&copyOpt.bwLimit, "bwlimit", "", "転送速度の上限（例: 10M, 512K）")
 	fs.BoolVar(&copyOpt.dryRun, "dry-run", false, "実際には転送せず、何が転送されるかだけを表示する")
 	fs.IntVar(&copyOpt.maxErrors, "max-errors", 0, "この件数を超えて失敗したら中断する（0で無制限）")
+
+	fs.StringVar(&copyOpt.progress, "progress", "auto",
+		"進捗の表示 (auto, always, never, none)")
+	fs.IntVar(&copyOpt.progressBars, "progress-bars", 0,
+		"同時に表示するファイルごとのバーの本数（0で既定値）")
+	fs.DurationVar(&copyOpt.stats, "stats", 30*time.Second,
+		"進捗バーを使わないときに集計を表示する間隔（0で表示しない）")
+	fs.BoolVarP(&copyOpt.quiet, "quiet", "q", false, "進捗を表示しない")
 }
 
 func runCopy(cmd *cobra.Command, _ []string) error {
@@ -144,7 +157,10 @@ func runCopy(cmd *cobra.Command, _ []string) error {
 		return withExitCode(ExitUsage, fmt.Errorf("--bwlimit の指定が不正です: %w", err))
 	}
 
-	reporter := newReporter()
+	reporter, err := newReporter()
+	if err != nil {
+		return withExitCode(ExitUsage, err)
+	}
 	defer reporter.Close()
 
 	opts := transfer.Options{

@@ -15,12 +15,22 @@ import (
 
 // newReporter は進みぐあいの表示先を作ります。
 //
-// 端末に描く実装は次のフェーズで追加します。
-// それまでは1行ずつ書き出す形にしておきます。
-func newReporter() progress.Reporter {
-	return progress.NewPlain(progress.PlainOptions{
-		StatsInterval: 30 * time.Second,
-	})
+// 端末なら進捗バー、パイプやジョブなら1行ずつの表示になります。
+func newReporter() (progress.Reporter, error) {
+	mode, ok := progress.ParseMode(copyOpt.progress)
+	if !ok {
+		return nil, fmt.Errorf("--progress の指定が不正です: %q（%s のいずれか）",
+			copyOpt.progress, strings.Join(progress.ModeNames(), ", "))
+	}
+	if copyOpt.quiet {
+		mode = progress.ModeNone
+	}
+
+	return progress.New(progress.Options{
+		Mode:          mode,
+		MaxBars:       copyOpt.progressBars,
+		StatsInterval: copyOpt.stats,
+	}), nil
 }
 
 // writeSummary は結果の要約を書き出します。

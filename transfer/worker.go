@@ -94,7 +94,11 @@ func (e *engine) copyOne(ctx context.Context, tracker progress.FileTracker, srcP
 		Wrap: func(r io.Reader) io.Reader {
 			// 進捗の計測と帯域の制限を、読み取りの流れに割り込ませる。
 			// ストレージの実装はどちらのことも知らない。
-			return e.bw.wrap(ctx, tracker.Wrap(r))
+			//
+			// 帯域制限を内側に置くのは、待ち時間を計測に含めるため。
+			// 外側に置くと待っている間が測られず、表示される速度が
+			// 実際より何倍も速くなってしまう。
+			return tracker.Wrap(e.bw.wrap(ctx, r))
 		},
 	})
 	return err

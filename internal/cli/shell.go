@@ -1,8 +1,9 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
-	"log"
+	"io"
 	"os"
 	"path"
 	"path/filepath"
@@ -17,32 +18,45 @@ import (
 
 var (
 	shellCmd = &cobra.Command{
-		Use: "shell",
-		Run: func(_ *cobra.Command, _ []string) {
+		Use:   "shell",
+		Short: "対話シェルを起動する",
+		RunE: func(_ *cobra.Command, _ []string) error {
 			storages, err := storageMapFromConfig(config)
 			if err != nil {
-				err = fmt.Errorf("failed load storages. %w", err)
-				log.Fatal(err)
+				return fmt.Errorf("failed load storages. %w", err)
 			}
 
 			var currentStorage hbg.Storage
 			currentPathMap := map[hbg.Storage]string{}
-			if err != nil {
-				err = fmt.Errorf("failed get working directory. %w", err)
-				log.Fatal(err)
-			}
 			for _, storage := range storages {
 				if storage.Type() == "local" {
 					currentStorage = storage
-					currentPathMap[storage], err = filepath.Abs(".")
-					currentPathMap[storage] = filepath.ToSlash(currentPathMap[storage])
+					abs, err := filepath.Abs(".")
 					if err != nil {
-						log.Fatal(err)
+						return fmt.Errorf("failed get working directory. %w", err)
 					}
+					currentPathMap[storage] = filepath.ToSlash(abs)
 				} else {
 					currentPathMap[storage] = "/"
 				}
 			}
+			if currentStorage == nil {
+				return withExitCode(ExitUsage,
+					fmt.Errorf("local ストレージが設定されていないため shell を開始できません"))
+			}
+
+			// readline のインスタンスはループの外で1度だけ作る。
+			// もとはループのたびに生成して defer で閉じており、
+			// 履歴ファイルのハンドルがプロセスの生存期間ぶん積み上がっていた。
+			l, err := readline.NewEx(&readline.Config{
+				HistoryFile:     filepath.Join(os.TempDir(), "hbg_shell_history"),
+				InterruptPrompt: "^C",
+				EOFPrompt:       "exit",
+			})
+			if err != nil {
+				return fmt.Errorf("failed to initialize shell. %w", err)
+			}
+			defer l.Close()
 
 		Loop:
 			for {
@@ -187,7 +201,9 @@ var (
 								if stat.IsDir || !dirOnly {
 									files, err := storage.List(file)
 									if err != nil {
-										// log.Fatal(err)
+										// 補完候補の取得に失敗しても、シェルの操作は継続できる。
+										// 候補なしとして扱う。
+										files = nil
 									}
 									for _, f := range files {
 										if f.IsDir || !dirOnly {
@@ -207,7 +223,9 @@ var (
 						if file == "" {
 							files, err := storage.List(currentPath)
 							if err != nil {
-								// log.Fatal(err)
+								// 補完候補の取得に失敗しても、シェルの操作は継続できる。
+								// 候補なしとして扱う。
+								files = nil
 							}
 							for _, f := range files {
 								if f.IsDir || !dirOnly {
@@ -308,28 +326,24 @@ var (
 					readline.PcItem("exit"),
 				)
 
-				l, err := readline.NewEx(&readline.Config{
-					HistoryFile:     filepath.Join(os.TempDir(), "hbg_shell_history"),
-					Prompt:          prompt,
-					AutoComplete:    completer,
-					InterruptPrompt: "^C",
-					EOFPrompt:       "exit",
-				})
-				if err != nil {
-					log.Fatal(err)
-				}
-				defer l.Close()
+				// 補完候補は現在のストレージに依存するので毎回入れ替える。
+				l.Config.AutoComplete = completer
+				l.SetPrompt(prompt)
 
 				line, err := l.Readline()
 				if err != nil {
-					err = fmt.Errorf("failed read line. %w", err)
-					log.Fatal(err)
+					// Ctrl-D（EOF）や Ctrl-C は異常ではなく終了操作。
+					// もとは log.Fatal でプロセスを落としていた。
+					if errors.Is(err, io.EOF) || errors.Is(err, readline.ErrInterrupt) {
+						return nil
+					}
+					return fmt.Errorf("failed read line. %w", err)
 				}
 				line = strings.TrimSpace(line)
 
 				// コマンド
 				if line == "exit" {
-					return
+					return nil
 				}
 				if strings.HasPrefix(line, "ls") {
 					spl := strings.SplitN(line, " ", 2)
@@ -417,7 +431,9 @@ var (
 						destStorage := storages[destSpl[0]]
 						srcPath := srcSpl[1]
 						destPath := destSpl[1]
-						ignores := []string{} //TODO
+						// もとは空のスライスに //TODO と書かれており、
+						// シェルの cp だけ無視リストが効いていなかった。
+						ignores := defaultIgnores
 
 						srcPath, err = pathResolute(srcStorage, srcPath, false)
 						if err != nil {
@@ -431,7 +447,14 @@ var (
 							continue Loop
 						}
 
-						copy(srcStorage, destStorage, srcPath, destPath, time.Second, ignores, 1)
+						// もとは戻り値を捨てており、コピーに失敗しても
+						// シェル上には何も表示されなかった。
+						result, err := copyTree(srcStorage, destStorage, srcPath, destPath, time.Second, ignores, 1)
+						if err != nil {
+							fmt.Println(err.Error())
+							continue Loop
+						}
+						result.writeSummary(os.Stdout)
 					}
 				}
 			}

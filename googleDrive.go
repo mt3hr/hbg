@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"path"
@@ -12,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/drive/v3"
@@ -43,72 +43,39 @@ func NewGoogleDrive(name string) (Storage, error) {
 }
 
 // ディレクトリ内のファイルを列挙します。
+//
+// 以前はルート直下の列挙で listFiles のエラーを検査しておらず、
+// API が失敗しても「空のディレクトリ」として正常終了していました。
+// コピー先が空だと誤認して不要な転送を行うため、必ず検査します。
 func (g *googleDrive) List(filepath string) ([]*FileInfo, error) {
-	fileInfos := []*FileInfo{}
-
-	if filepath == "/" {
-		files, err := g.listFiles("root")
-		for _, file := range files {
-			modTime := time.Time{}
-			if file.ModifiedTime != "" {
-				modTime, err = time.Parse(time.RFC3339, file.ModifiedTime)
-				if err != nil {
-					err = fmt.Errorf("time parse failed %s. %w", file.ModifiedTime, err)
-					return nil, err
-				}
-			}
-
-			fileInfo := &FileInfo{
-				Path:  path.Join(filepath, file.Name),
-				IsDir: file.MimeType == googleDriveMimeTypeFolder,
-
-				Name:    file.Name,
-				LastMod: modTime,
-				Size:    file.Size,
-			}
-			fileInfos = append(fileInfos, fileInfo)
-		}
-		return fileInfos, nil
-	}
-
-	sepPath := strings.Split(filepath, "/")
-	files, err := g.listFiles("root")
+	dirID, err := g.resolveDirID(filepath)
 	if err != nil {
-		err = fmt.Errorf("error at list files %s %s: %w", "root", g.Name(), err)
 		return nil, err
 	}
 
-	for i := 0; i < len(sepPath); i++ {
-		nextID := ""
-		for _, file := range files {
-			if sepPath[i] == file.Name && file.MimeType == googleDriveMimeTypeFolder {
-				nextID = file.Id
-				break
-			}
-		}
-		if nextID != "" {
-			files, err = g.listFiles(nextID)
-		}
+	files, err := g.listFiles(dirID)
+	if err != nil {
+		return nil, err
 	}
+
+	fileInfos := make([]*FileInfo, 0, len(files))
 	for _, file := range files {
 		modTime := time.Time{}
 		if file.ModifiedTime != "" {
 			modTime, err = time.Parse(time.RFC3339, file.ModifiedTime)
 			if err != nil {
-				err = fmt.Errorf("time parse failed %s. %w", file.ModifiedTime, err)
-				return nil, err
+				return nil, fmt.Errorf("time parse failed %s. %w", file.ModifiedTime, err)
 			}
 		}
 
-		fileInfo := &FileInfo{
+		fileInfos = append(fileInfos, &FileInfo{
 			Path:  path.Join(filepath, file.Name),
 			IsDir: file.MimeType == googleDriveMimeTypeFolder,
 
 			Name:    file.Name,
 			LastMod: modTime,
 			Size:    file.Size,
-		}
-		fileInfos = append(fileInfos, fileInfo)
+		})
 	}
 	return fileInfos, nil
 }
@@ -249,7 +216,7 @@ func (g *googleDrive) MkDir(dirPath string) error {
 		parentDirName, dirName = path.Split(parentDirName)
 	}
 
-	dir := &drive.File{}
+	var dir *drive.File
 	if parentDirName == "/" {
 		dir = &drive.File{
 			Name:     dirName,
@@ -299,57 +266,94 @@ func (g *googleDrive) Close() error {
 	return nil
 }
 
-// ディレクトリの子ファイルを取得します。
+// ディレクトリの子ファイルをすべて取得します。
+//
+// Files.List が一度に返す件数には上限があり、続きは nextPageToken を
+// 辿って取得する必要があります。以前は nextPageToken を Fields に
+// 指定しながら follow しておらず、子が1000件を超えるディレクトリで
+// 超過分がエラーも警告もなく欠落していました。
+// 同期ツールとしては「コピーされないファイルが出る」ことになるため、
+// Pages ですべてのページを走査します。
 func (g *googleDrive) listFiles(parentID string) ([]*drive.File, error) {
-	files, err := g.srv.Files.List().Q(fmt.Sprintf("'%s' in parents and trashed=false", parentID)).PageSize(1000).Fields("nextPageToken, files(parents, id, name, kind, mimeType, modifiedTime, size)").Do()
-	if files == nil {
-		return nil, err
+	files := []*drive.File{}
+
+	call := g.srv.Files.List().
+		Q(fmt.Sprintf("'%s' in parents and trashed=false", parentID)).
+		PageSize(1000).
+		Fields("nextPageToken, files(parents, id, name, kind, mimeType, modifiedTime, size)")
+
+	err := call.Pages(context.Background(), func(page *drive.FileList) error {
+		files = append(files, page.Files...)
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("error at list files in %s at %s: %w", parentID, g.Name(), err)
 	}
-	return files.Files, err
+	return files, nil
 }
 
-// ファイルパスからdrive.Fileオブジェクトを作成します。
+// resolveDirID は、スラッシュ区切りのディレクトリパスを
+// Google Drive のフォルダIDに解決します。ルートは "root" です。
+//
+// 以前は、途中のセグメントが見つからない場合にそれを黙って読み飛ばし、
+// ひとつ上の階層の内容をそのまま結果として返していました。
+// 存在しないディレクトリを指定すると別のディレクトリの内容が
+// 正しい結果として返るため、コピーや削除の対象を取り違える恐れがあります。
+// ここでは見つからない時点で明確に失敗させます。
+func (g *googleDrive) resolveDirID(dir string) (string, error) {
+	id := "root"
+	for _, segment := range strings.Split(dir, "/") {
+		if segment == "" || segment == "." {
+			continue
+		}
+
+		files, err := g.listFiles(id)
+		if err != nil {
+			return "", err
+		}
+
+		nextID := ""
+		for _, file := range files {
+			// 途中のセグメントはフォルダでなければならない。
+			// これを見ないと、ディレクトリと同名のファイルが
+			// 解決先を横取りしてしまう。
+			if file.Name == segment && file.MimeType == googleDriveMimeTypeFolder {
+				nextID = file.Id
+				break
+			}
+		}
+		if nextID == "" {
+			return "", fmt.Errorf("%s: ディレクトリ %s が見つかりませんでした（%s が存在しません）", g.Type(), dir, segment)
+		}
+		id = nextID
+	}
+	return id, nil
+}
+
+// ファイルパスからdrive.Fileオブジェクトを取得します。
+// ファイルでもディレクトリでも取得できます。
 func (g *googleDrive) getFileByPath(filepath string) (*drive.File, error) {
 	d, f := path.Split(filepath)
 	filepath = path.Join(d, f)
 
 	dir, filename := path.Split(filepath)
-	sepPath := strings.Split(dir, "/")
-
-	if filepath == "/" {
-		files, err := g.listFiles("root")
-		if err != nil {
-			err = fmt.Errorf("error at list files %s at %s: %w", "root", g.Name(), err)
-			return nil, err
-		}
-		for _, file := range files {
-			return file, nil
-		}
+	if filename == "" {
+		return nil, fmt.Errorf("%s: ルートディレクトリはファイルとして取得できません", g.Type())
 	}
 
-	files, err := g.listFiles("root")
+	dirID, err := g.resolveDirID(dir)
 	if err != nil {
-		err = fmt.Errorf("error at list files %s at %s: %w", "root", g.Name(), err)
 		return nil, err
 	}
 
-	for i := 0; i < len(sepPath); i++ {
-		nextID := ""
-		for _, file := range files {
-			if sepPath[i] == file.Name {
-				nextID = file.Id
-				break
-			}
-		}
-		if nextID != "" {
-			files, err = g.listFiles(nextID)
-		}
+	files, err := g.listFiles(dirID)
+	if err != nil {
+		return nil, err
 	}
 	for _, file := range files {
-		if file.Name != filename {
-			continue
+		if file.Name == filename {
+			return file, nil
 		}
-		return file, nil
 	}
 	return nil, fmt.Errorf("%s: %s は見つかりませんでした。", g.Type(), filepath)
 }
@@ -370,39 +374,56 @@ func getClient(config *oauth2.Config, name string) (*http.Client, error) {
 	exe = filepath.Dir(exe)
 	current := "."
 
-	tok := &oauth2.Token{}
+	// 保存済みのトークンを探す。
+	var tok *oauth2.Token
 	for _, tokenDir := range []string{home, exe, current} {
-		tokenFilePath := filepath.Join(tokenDir, tokenFileName)
-		tokenFile := &os.File{}
-		tokenFile, err = os.Open(tokenFilePath)
-		if err == nil {
-			defer tokenFile.Close()
-			err = json.NewDecoder(tokenFile).Decode(tok)
+		t, loadErr := tokenFromFile(filepath.Join(tokenDir, tokenFileName))
+		if loadErr == nil {
+			tok = t
 			break
 		}
 	}
-	if err != nil {
-		authURL := config.AuthCodeURL("state-token", oauth2.AccessTypeOffline)
-		fmt.Printf("%s: %s の初期化を行います。\n下記のURLを開いてhbgを許可し、表示されたキーをこの画面に貼り付けてください。\n%s\n", "googledrive", name, authURL)
 
-		var authCode string
-		if _, err := fmt.Scan(&authCode); err != nil {
-			log.Fatalf("Unable to read authorization code %v", err)
-		}
-
-		tok, err := config.Exchange(context.TODO(), authCode)
+	if tok == nil {
+		// もとはこの分岐の中で tok を := により再宣言していたため、
+		// 取得したトークンは保存されるものの、返されるのは外側の
+		// 空のトークンだった。そのため初回の実行は必ず401になり、
+		// 2回目以降（保存済みトークンを読む経路）でしか動かなかった。
+		tok, err = authorizeGoogleDrive(config, name)
 		if err != nil {
-			log.Fatalf("Unable to retrieve token from web %v", err)
-		}
-
-		tokenFilePath := filepath.Join(home, tokenFileName)
-		err = saveToken(tokenFilePath, tok)
-		if err != nil {
-			err = fmt.Errorf("failed save token. %w", err)
 			return nil, err
 		}
+		if err := saveToken(filepath.Join(home, tokenFileName), tok); err != nil {
+			return nil, fmt.Errorf("failed save token. %w", err)
+		}
 	}
+
 	return config.Client(context.Background(), tok), nil
+}
+
+// authorizeGoogleDrive は対話的にユーザーの許可を得てトークンを取得します。
+//
+// 注意: この方式（OOBフロー）は Google が2023年1月に廃止しており、
+// 新規の認可は通りません。ローカルループバック方式への移行が必要です。
+func authorizeGoogleDrive(config *oauth2.Config, name string) (*oauth2.Token, error) {
+	// state は CSRF 対策のため、要求ごとにランダムでなければならない。
+	// もとは "state-token" という固定値だった。
+	state := uuid.New().String()
+	authURL := config.AuthCodeURL(state, oauth2.AccessTypeOffline)
+	fmt.Printf("%s: %s の初期化を行います。\n下記のURLを開いてhbgを許可し、表示されたキーをこの画面に貼り付けてください。\n%s\n", "googledrive", name, authURL)
+
+	// もとはここで log.Fatal を呼んでおり、ライブラリ側からプロセスを
+	// 終了させていた。hbg shell から使うとシェルごと落ちてしまう。
+	var authCode string
+	if _, err := fmt.Scan(&authCode); err != nil {
+		return nil, fmt.Errorf("認可コードの読み取りに失敗しました: %w", err)
+	}
+
+	tok, err := config.Exchange(context.Background(), authCode)
+	if err != nil {
+		return nil, fmt.Errorf("認可コードからトークンを取得できませんでした: %w", err)
+	}
+	return tok, nil
 }
 
 // Retrieves a token from a local file.
@@ -433,7 +454,9 @@ func getGoogleDriveService(name string) (*drive.Service, error) {
 	b := []byte(`{"installed":{"client_id":"581224303741-8gad6gc0r1cdeam0r3rgmga140rgemr6.apps.googleusercontent.com","project_id":"hbg-go","auth_uri":"https://accounts.google.com/o/oauth2/auth","token_uri":"https://oauth2.googleapis.com/token","auth_provider_x509_cert_url":"https://www.googleapis.com/oauth2/v1/certs","client_secret":"_P9uv6G1xhQsToD9IJCsr3O7","redirect_uris":["urn:ietf:wg:oauth:2.0:oob","http://localhost"]}}`)
 	config, err := google.ConfigFromJSON(b, drive.DriveScope)
 	if err != nil {
-		log.Fatalf("Unable to parse client secret file to config: %v", err)
+		// もとは log.Fatal でプロセスを終了させていた。
+		// ライブラリ側から終了させると hbg shell がシェルごと落ちる。
+		return nil, fmt.Errorf("クライアント設定を解釈できませんでした: %w", err)
 	}
 	client, err := getClient(config, name)
 	if err != nil {

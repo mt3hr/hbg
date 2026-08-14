@@ -279,6 +279,14 @@ func runTransfer(cmd *cobra.Command, deleteExtraneous bool) error {
 	}
 
 	result, err := transfer.RunWithPasses(ctx, opts, pass, &passReporter{r: reporter})
+
+	// まとめを書く前に表示を閉じる。
+	//
+	// 進捗は標準エラー、まとめは標準出力へ書くので、閉じずに書くと
+	// 端末では進捗バーの描き直しとまとめが混ざってしまう。
+	// Close は二度呼んでも害がないので、後始末の defer はそのまま残す。
+	_ = reporter.Close()
+
 	if result != nil {
 		hbglog.LogSummary(result.Transferred, result.Failed, result.Elapsed)
 		if jsonw != nil {

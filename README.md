@@ -4,10 +4,10 @@
 
 ```console
 $ hbg copy local:C:/photos dropbox:/backup
-調査中  ⠹  1204件 / 18.3GiB（87ディレクトリ）
-全体 6.2 GiB / 18.3 GiB [=========>              ]  42.1 MiB/s 残り  4m48s
-2024/a.jpg               3.0 MiB/3.8 MiB   8.2 MiB/s
-2024/b.jpg               1.2 MiB/5.1 MiB   6.9 MiB/s
+全体 6.2GiB / 18.3GiB      [========>                ]    42.1MiB/s   残り 4:48+
+調査中  ⠹ 1204件 / 18.3GiB（87ディレクトリ）  スキップ 830件
+2024/a.jpg               [=================>       ]   3.0 MiB/3.8 MiB   8.2 MiB/s
+2024/b.jpg               [========>                ]   1.2 MiB/5.1 MiB   6.9 MiB/s
 ```
 
 対応しているストレージ:

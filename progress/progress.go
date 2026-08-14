@@ -98,3 +98,21 @@ func (nopTracker) Reset()                     {}
 func (nopTracker) Complete(int64)             {}
 func (nopTracker) Abort()                     {}
 func (nopTracker) Finish()                    {}
+
+// countingReader は読んだ量を数える Reader です。
+//
+// 1回の読み取りにかかった時間も渡します。移動平均で速度を出す
+// 表示がそれを必要とするためです。
+type countingReader struct {
+	r      io.Reader
+	onRead func(n int, elapsed time.Duration)
+}
+
+func (c *countingReader) Read(p []byte) (int, error) {
+	started := time.Now()
+	n, err := c.r.Read(p)
+	if n > 0 && c.onRead != nil {
+		c.onRead(n, time.Since(started))
+	}
+	return n, err
+}

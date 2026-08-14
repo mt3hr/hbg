@@ -15,6 +15,7 @@ require (
 	github.com/fclairamb/ftpserverlib v0.32.3
 	github.com/gobwas/glob v0.2.3
 	github.com/jlaffaye/ftp v0.2.2
+	github.com/mattn/go-runewidth v0.0.27
 	github.com/pkg/sftp v1.13.11
 	github.com/skeema/knownhosts v1.3.2
 	github.com/spf13/afero v1.15.0
@@ -73,7 +74,6 @@ require (
 	github.com/jcmturner/gokrb5/v8 v8.4.4 // indirect
 	github.com/jcmturner/rpc/v2 v2.0.3 // indirect
 	github.com/kr/fs v0.1.0 // indirect
-	github.com/mattn/go-runewidth v0.0.27 // indirect
 	github.com/pelletier/go-toml/v2 v2.4.3 // indirect
 	github.com/sagikazarmark/locafero v0.12.0 // indirect
 	github.com/subosito/gotenv v1.6.0 // indirect

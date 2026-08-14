@@ -57,12 +57,17 @@ func (e *engine) collectExtraneous(
 		if _, ok := srcNames[e.nameKey(entry.Name)]; ok {
 			continue
 		}
+		rel := joinRel(relDir, entry.Name)
+
 		if strings.HasSuffix(entry.Name, partSuffix) {
-			// 書き込み中のものは、転送の側が片付ける。
+			if !e.stalePart(entry) {
+				// 書き込み中のものは、転送の側が片付ける。
+				continue
+			}
+			e.addExtraneous(entry, rel)
 			continue
 		}
 
-		rel := joinRel(relDir, entry.Name)
 		if !e.deletable(rel, entry) {
 			continue
 		}
@@ -90,6 +95,11 @@ func (e *engine) collectDirContents(ctx context.Context, dir, relDir string) err
 
 	for _, entry := range entries {
 		rel := joinRel(relDir, entry.Name)
+		if e.stalePart(entry) {
+			// 残骸は絞り込みに関わらず片付ける。理由は stalePart を参照。
+			e.addExtraneous(entry, rel)
+			continue
+		}
 		if !e.deletable(rel, entry) {
 			continue
 		}
@@ -101,6 +111,32 @@ func (e *engine) collectDirContents(ctx context.Context, dir, relDir string) err
 		e.addExtraneous(entry, rel)
 	}
 	return nil
+}
+
+// stalePart は、置き去りにされた書き込み中ファイルかどうかを返します。
+//
+// 書き込み中の一時ファイルは、ふつうは転送の側が片付けます。しかし
+// 強制終了や電源断で hbg が死ぬと、片付けられないまま転送先に残ります。
+// sync --delete でも一律に対象外としていたため、一度残ると永久に残り、
+// robocopy /MIR から乗り換えると転送先が少しずつ汚れていきます。
+//
+// 今回の実行より前からあるものだけを対象にします。走っている最中に
+// 書かれたものには手を出さないので、自分自身の書き込みを消すことはありません。
+//
+// 同じ転送先へ2つの hbg を同時に走らせた場合は守り切れません。
+// 後から始めたほうから見ると、先に始まった書き込みは
+// 「実行より前からあるもの」に見えるためです。もっともその状況では
+// 同じファイルを両方が書きに行くので、そもそも成り立ちません。
+//
+// 絞り込みは通しません。これは hbg 自身が作ったものであって
+// 利用者のデータではないので、「転送していないものは消さない」という
+// 決まりが当てはまりません。--include で絞ったときに残骸だけが
+// 片付けられないのは筋が通りません。
+func (e *engine) stalePart(entry storage.FileInfo) bool {
+	if entry.IsDir || !strings.HasSuffix(entry.Name, partSuffix) {
+		return false
+	}
+	return entry.ModTime.Before(e.startedAt)
 }
 
 // addExtraneous は1件を控えます。
@@ -155,10 +191,14 @@ func (e *engine) deleteExtraneous(ctx context.Context) {
 	}
 
 	if failed := e.failedCount(); failed > 0 {
-		// 読めなかったものを「向こうには無い」と取り違えたくない。
-		e.reporter.Logf("転送に %d件失敗したため、削除は行いませんでした（%d件が対象でした）",
+		if !e.opts.DeleteOnPartial {
+			// 読めなかったものを「向こうには無い」と取り違えたくない。
+			e.reporter.Logf("転送に %d件失敗したため、削除は行いませんでした（%d件が対象でした）",
+				failed, len(targets))
+			return
+		}
+		e.reporter.Logf("転送に %d件失敗しましたが、--delete-on-partial の指定により削除を続けます（%d件）",
 			failed, len(targets))
-		return
 	}
 
 	// 深いものから消す。ディレクトリは中身が無くならないと消せない。

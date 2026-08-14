@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/mt3hr/hbg/backend/memory"
 	"github.com/mt3hr/hbg/transfer"
@@ -188,6 +189,16 @@ func TestSyncIgnoresPartFiles(t *testing.T) {
 	src, dst := newPair(t)
 	put(t, src, "/data/a.txt", "1")
 	put(t, dst, "/backup/data/.b.txt.hbgpart", "書き込み中")
+
+	// 今まさに書かれている、という状態にする。
+	//
+	// 時刻を明示しないと、書いた時刻と転送を始めた時刻が
+	// 時計の粒度によって同じ値になったりならなかったりして、
+	// 置き去りの残骸(TestSyncDeletesStalePartFiles)との境目で揺れる。
+	if err := dst.SetModTime(context.Background(), "/backup/data/.b.txt.hbgpart",
+		time.Now().Add(time.Minute)); err != nil {
+		t.Fatalf("SetModTime: %v", err)
+	}
 
 	opts := baseOptions(src, dst)
 	opts.Delete = true

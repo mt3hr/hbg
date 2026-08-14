@@ -249,13 +249,14 @@ func runTransfer(cmd *cobra.Command, deleteExtraneous bool) error {
 			Backoff:     copyOpt.retryBackoff,
 			MaxWait:     5 * time.Minute,
 		},
-		TPS:            copyOpt.tps,
-		BandwidthLimit: bwLimit,
-		Delete:         deleteExtraneous,
-		DryRun:         copyOpt.dryRun,
-		MaxErrors:      copyOpt.maxErrors,
-		Reporter:       reporter,
-		OnTransfer:     logTransferEvent(srcStorage.Type(), destStorage.Type()),
+		TPS:             copyOpt.tps,
+		BandwidthLimit:  bwLimit,
+		Delete:          deleteExtraneous,
+		DeleteOnPartial: deleteExtraneous && syncOpt.deleteOnPartial,
+		DryRun:          copyOpt.dryRun,
+		MaxErrors:       copyOpt.maxErrors,
+		Reporter:        reporter,
+		OnTransfer:      logTransferEvent(srcStorage.Type(), destStorage.Type()),
 	}
 
 	// --json のときは、機械向けの出力を標準出力へ流す。

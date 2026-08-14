@@ -2,9 +2,12 @@ package transfer_test
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/mt3hr/hbg/backend/local"
 	"github.com/mt3hr/hbg/transfer"
 )
 
@@ -105,6 +108,44 @@ func TestRunRejectsGlobWithDelete(t *testing.T) {
 	// 断ったのだから、消えていないこと。
 	if _, err := dst.Stat(context.Background(), "/backup/old.txt"); err != nil {
 		t.Errorf("断ったのにコピー先が消えている: %v", err)
+	}
+}
+
+// OS の区切りで書いたコピー元にもワイルドカードが効きます。
+//
+// Windows では "C:\Users\me\data\*" のように渡されます。以前はこれが
+// 1件も一致せず、スクリプトからは「0件成功」に見えていました。
+// glob では "\" が打ち消しの印なので "\U" が "U" になり、
+// 一覧が返す "C:/Users/me/data/..." と噛み合わなくなっていたためです。
+//
+// OS から受け取ったパスに "/*" を足す書き方がそのまま壊れるので、
+// 実物のファイルシステムで確かめます。
+func TestRunGlobAcceptsOSPathSeparators(t *testing.T) {
+	srcDir, dstDir := t.TempDir(), t.TempDir()
+
+	for _, name := range []string{"a.txt", "b.txt"} {
+		if err := os.WriteFile(filepath.Join(srcDir, name), []byte(name), 0o600); err != nil {
+			t.Fatalf("WriteFile(%s): %v", name, err)
+		}
+	}
+
+	src, dst := local.New("src"), local.New("dst")
+	opts := baseOptions(src, dst)
+	// filepath.Join は OS の区切りを使う。Windows なら "\" が入る。
+	opts.SrcPath = filepath.Join(srcDir, "*")
+	opts.DstDir = dstDir
+
+	result, err := transfer.Run(context.Background(), opts)
+	if err != nil {
+		t.Fatalf("Run(%q): %v", opts.SrcPath, err)
+	}
+	if result.Transferred != 2 || result.Failed != 0 {
+		t.Errorf("Transferred=%d Failed=%d, want 2 と 0", result.Transferred, result.Failed)
+	}
+	for _, name := range []string{"a.txt", "b.txt"} {
+		if _, err := os.Stat(filepath.Join(dstDir, name)); err != nil {
+			t.Errorf("%s が無い: %v", name, err)
+		}
 	}
 }
 

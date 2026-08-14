@@ -94,6 +94,46 @@ func TestListDoesNotFollowSymlinks(t *testing.T) {
 	}
 }
 
+// 読み取り専用のファイルを置き換えられることを確認します。
+//
+// Windows の os.Rename は MOVEFILE_REPLACE_EXISTING なので、
+// 属性を落とさないと Access is denied で失敗していました。
+// ミラー用途では、この1件の失敗が sync --delete の削除を丸ごと止めます。
+func TestPutReplacesReadOnlyFile(t *testing.T) {
+	ctx := context.Background()
+	s := local.New("local")
+	root := filepath.ToSlash(t.TempDir())
+	path := root + "/readonly.txt"
+
+	if _, err := s.Put(ctx, path, strings.NewReader("古い"), storage.ObjectMeta{}); err != nil {
+		t.Fatalf("Put(1回目): %v", err)
+	}
+	if err := os.Chmod(filepath.FromSlash(path), 0o444); err != nil {
+		t.Fatalf("Chmod: %v", err)
+	}
+
+	if _, err := s.Put(ctx, path, strings.NewReader("新しい"), storage.ObjectMeta{}); err != nil {
+		t.Fatalf("読み取り専用のファイルを置き換えられなかった: %v", err)
+	}
+
+	got, err := os.ReadFile(filepath.FromSlash(path))
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if string(got) != "新しい" {
+		t.Errorf("中身が %q, want %q", got, "新しい")
+	}
+
+	// 一時ファイルが残っていないこと
+	entries, err := os.ReadDir(filepath.FromSlash(root))
+	if err != nil {
+		t.Fatalf("ReadDir: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Errorf("ファイルが %d 件, want 1", len(entries))
+	}
+}
+
 func TestFeaturesDeclaresOptionalInterfaces(t *testing.T) {
 	s := local.New("local")
 

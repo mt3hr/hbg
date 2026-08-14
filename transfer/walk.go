@@ -2,6 +2,8 @@ package transfer
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"path"
 	"strings"
 
@@ -53,7 +55,7 @@ func (e *engine) scanDir(ctx context.Context, srcDir, dstDir, relDir string, tas
 	// 子を持たないディレクトリは作られず、しかも続く一覧が失敗していた。
 	dstEntries, err := e.ensureDir(ctx, dstDir)
 	if err != nil {
-		return err
+		return e.recordScanFailure(ctx, e.opts.Dst, dstDir, err)
 	}
 
 	// 転送元を一覧する。
@@ -64,7 +66,7 @@ func (e *engine) scanDir(ctx context.Context, srcDir, dstDir, relDir string, tas
 	}
 	entries, err := storage.ListAll(ctx, e.opts.Src, srcDir)
 	if err != nil {
-		return err
+		return e.recordScanFailure(ctx, e.opts.Src, srcDir, err)
 	}
 
 	e.scanDirs.Add(1)
@@ -112,6 +114,34 @@ func (e *engine) scanDir(ctx context.Context, srcDir, dstDir, relDir string, tas
 			return err
 		}
 	}
+	return nil
+}
+
+// recordScanFailure は走査中の失敗を1件として数え、走査を続けます。
+//
+// 以前はここで error を返しており、読めないディレクトリが1つあるだけで
+// errgroup が全体を巻き取って走査が止まっていました。ファイル1つが
+// 読めない場合は数えて続けるのに、ディレクトリだと全部止まるのは
+// 釣り合いません。System Volume Information のような、
+// 管理者でも読めないディレクトリが1つあるだけで使えなくなります。
+//
+// 取り消しだけは数えずにそのまま伝えます。利用者の意思なので、
+// 失敗として報告するのは筋が違います。
+//
+// 削除との関係: 一覧に失敗したディレクトリはコピー元に存在するので
+// 「コピー元にない」ものにはならず、その配下が削除対象として
+// 控えられることもありません（控えるのは一覧に成功したあと）。
+// 中身が分からないまま消される心配はありません。
+func (e *engine) recordScanFailure(ctx context.Context, s storage.Storage, dir string, err error) error {
+	if ctx.Err() != nil ||
+		errors.Is(err, context.Canceled) ||
+		errors.Is(err, context.DeadlineExceeded) {
+		return err
+	}
+
+	wrapped := fmt.Errorf("%s:%s の一覧に失敗しました: %w", s.Type(), dir, err)
+	e.recordFailure(wrapped)
+	e.reporter.Logf("失敗: %v", wrapped)
 	return nil
 }
 

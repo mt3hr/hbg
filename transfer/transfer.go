@@ -59,6 +59,18 @@ type Options struct {
 	// 「向こうには無い」と取り違えて消してしまわないためです。
 	Delete bool
 
+	// DeleteOnPartial を真にすると、転送に失敗があっても削除を行います。
+	//
+	// ミラーとして使う場合、1件の失敗で削除が丸ごと止まると、
+	// 消したはずのものが転送先に残り続けます。件数が多いほど
+	// 「1件も失敗しない」という前提は成り立たなくなるので、
+	// どちらの危険を取るかは利用者に選ばせます。
+	//
+	// これを指定しても、一覧に失敗したディレクトリの中身は
+	// 削除対象に入りません。控えるのは一覧に成功したあとなので、
+	// 中身の分からないディレクトリからは何も控えられないためです。
+	DeleteOnPartial bool
+
 	// DryRun を真にすると、実際には転送せず何が転送されるかだけを示します。
 	DryRun bool
 
@@ -168,6 +180,10 @@ type engine struct {
 	// verifyHash は転送後の検証に使うハッシュです。使わない場合は空です。
 	verifyHash storage.HashType
 
+	// startedAt はこの転送を始めた時刻です。
+	// 置き去りにされた書き込み中ファイルを見分けるのに使います。
+	startedAt time.Time
+
 	// 走査の途中経過
 	scanDirs  atomic.Int64
 	scanFiles atomic.Int64
@@ -233,18 +249,20 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
+	started := time.Now()
+
 	e := &engine{
-		opts:     opts,
-		reporter: opts.Reporter,
-		limits:   newLimiterSet(opts.TPS, opts.TPSPerType),
-		bw:       newBandwidthLimiter(opts.BandwidthLimit),
-		madeDirs: map[string]struct{}{},
-		abort:    cancel,
-		comparer: comparer,
+		opts:      opts,
+		reporter:  opts.Reporter,
+		limits:    newLimiterSet(opts.TPS, opts.TPSPerType),
+		bw:        newBandwidthLimiter(opts.BandwidthLimit),
+		madeDirs:  map[string]struct{}{},
+		abort:     cancel,
+		comparer:  comparer,
+		startedAt: started,
 	}
 	e.verifyHash = resolveVerifyHash(opts, comparer)
 
-	started := time.Now()
 	e.reporter.ScanStarted()
 
 	// 走査と転送を同時に動かす。

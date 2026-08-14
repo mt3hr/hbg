@@ -20,12 +20,21 @@ var syncCmd = &cobra.Command{
   - 転送に1件でも失敗があれば、削除は行いません。
     コピー元を読めなかっただけで「向こうには無い」と判断すると、
     取っておきたいものを消すことになるためです。
+    件数が多く、失敗が避けられない場面で削除を進めたいときは
+    --delete-on-partial を付けてください。付けても、一覧に失敗した
+    ディレクトリの中身は削除対象になりません。
 
   - --include や --exclude で対象外にしたものは消しません。
     転送していないものを消すのは筋が通らないためです。
+    例外は hbg 自身が置き去りにした書き込み中ファイル(.hbgpart)で、
+    これは利用者のデータではないので絞り込みに関わらず片付けます。
 
 --dry-run を付けると、何が消えるかだけを確かめられます。
 はじめて実行するときは、まずこちらで確かめてください。
+
+コピー先は「コピー先ディレクトリ / コピー元の名前」になります。
+local:/data/photos を local:/backup へ同期すると /backup/photos が
+コピー元に合わせられ、/backup の他のものには手を付けません。
 
 ` + supportedStorageTypesHelp(),
 	Example: `使用例
@@ -41,7 +50,8 @@ hbg sync --delete local:C:/photos dropbox:/backup
 }
 
 var syncOpt = struct {
-	delete bool
+	delete          bool
+	deleteOnPartial bool
 }{}
 
 func init() {
@@ -49,6 +59,8 @@ func init() {
 	registerTransferFlags(fs)
 	fs.BoolVar(&syncOpt.delete, "delete", false,
 		"コピー元にないものをコピー先から削除する")
+	fs.BoolVar(&syncOpt.deleteOnPartial, "delete-on-partial", false,
+		"転送に失敗があっても削除する（--delete と併用）")
 }
 
 // deleteSummary は削除の結果を1行にまとめます。

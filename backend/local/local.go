@@ -278,6 +278,12 @@ func (s *Storage) Put(ctx context.Context, path string, r io.Reader, meta storag
 		}
 	}
 
+	// 置き換え先が読み取り専用だと Windows の rename は失敗する。
+	// 属性を落としてから移す。詳しくは clearReadOnly の説明を参照。
+	if roErr := clearReadOnly(target); roErr != nil {
+		return nil, s.wrapErr("put", path, roErr)
+	}
+
 	if renameErr := os.Rename(tmpName, target); renameErr != nil {
 		return nil, s.wrapErr("put", path, renameErr)
 	}

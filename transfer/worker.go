@@ -34,6 +34,13 @@ func (e *engine) transferOne(ctx context.Context, t task) {
 	if e.opts.DryRun {
 		e.reporter.Logf("転送する（実行しない）: %s:%s -> %s:%s",
 			e.opts.Src.Type(), t.srcPath, e.opts.Dst.Type(), dstPath)
+
+		// 運びはしないが、片付いたことは伝える。
+		// 伝えないと、走査で数えたぶんだけ進みぐあいが足りないままになる。
+		// 読み取りが起きないので、速度には数えられない。
+		tracker := e.reporter.StartFile(t.name, t.size)
+		tracker.Finish()
+
 		e.recordSuccess(0)
 		e.notify(TransferEvent{SrcPath: t.srcPath, DstPath: dstPath, Duration: time.Since(started)})
 		return

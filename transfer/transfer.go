@@ -254,6 +254,14 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 	g, gctx := errgroup.WithContext(ctx)
 
 	g.Go(func() error {
+		// 走査が終わった時点で知らせる。
+		//
+		// 以前は転送がすべて終わってから知らせていたので、
+		// 「調査中」の表示が最後まで消えず、総量も確定しないままだった。
+		// 総量が決まらないうちは、残り時間は下限にしかならない。
+		defer func() {
+			e.reporter.ScanDone(e.scanDirs.Load(), e.scanFiles.Load(), e.scanBytes.Load())
+		}()
 		defer close(tasks)
 		return e.scan(gctx, srcRoots, tasks)
 	})
@@ -284,7 +292,6 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 	e.mu.Unlock()
 
 	result.Elapsed = time.Since(started)
-	e.reporter.ScanDone(e.scanDirs.Load(), e.scanFiles.Load(), e.scanBytes.Load())
 	e.reporter.Done(progress.Summary{
 		Transferred:  result.Transferred,
 		Skipped:      result.Skipped,

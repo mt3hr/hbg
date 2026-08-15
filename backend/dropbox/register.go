@@ -17,9 +17,8 @@ func init() {
 `,
 		New: func(ctx context.Context, name string, params backend.Params) (storage.Storage, error) {
 			return New(ctx, Config{
-				Name:        name,
-				AppKey:      params.Get("app_key"),
-				AccessToken: params.Get("access_token"),
+				Name:   name,
+				AppKey: params.Get("app_key"),
 			})
 		},
 	})

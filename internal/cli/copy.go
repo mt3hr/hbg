@@ -21,7 +21,7 @@ var (
 		Use:     "copy srcStorage:srcPath destStorage:destDirPath",
 		Short:   "ストレージからストレージへとデータをコピーする",
 		Long: `ストレージからストレージへとデータをコピーします。
-最終更新時刻の差が update_duration 以内で、かつサイズが同じファイルは
+最終更新時刻の差が --modify-window 以内で、かつサイズが同じファイルは
 スキップされます。
 
 ` + supportedStorageTypesHelp() + `
@@ -77,7 +77,6 @@ hbg copy --retry 3 --retry-wait 5s --retry-pass 2 local:C:/hoge dropbox:/hbg
 		worker int
 
 		// 比較の指定
-		updateDuration time.Duration
 		modifyWindow   time.Duration
 		compare        string
 		checksum       bool
@@ -138,8 +137,6 @@ func registerTransferFlags(fs *pflag.FlagSet) {
 	fs.BoolVar(&copyOpt.sizeOnly, "size-only", false, "サイズだけで比較する (--compare size と同じ)")
 	fs.DurationVar(&copyOpt.modifyWindow, "modify-window", 0,
 		"この時間以内の更新時刻の差は同一とみなす（0で自動）")
-	fs.DurationVar(&copyOpt.updateDuration, "update_duration", 0,
-		"--modify-window の古い名前")
 	fs.BoolVar(&copyOpt.update, "update", true, "コピー先のほうが新しい場合は上書きしない")
 	fs.BoolVar(&copyOpt.overwrite, "overwrite", false, "コピー先のほうが新しくても上書きする")
 	fs.BoolVar(&copyOpt.ignoreExisting, "ignore-existing", false, "コピー先にあるものは内容を問わず転送しない")
@@ -154,9 +151,6 @@ func registerTransferFlags(fs *pflag.FlagSet) {
 
 	fs.StringVar(&copyOpt.minSize, "min-size", "", "これより小さいファイルを転送しない（例: 1M）")
 	fs.StringVar(&copyOpt.maxSize, "max-size", "", "これより大きいファイルを転送しない（例: 1G）")
-
-	// 古い名前は残すが、案内では出さない。
-	_ = fs.MarkDeprecated("update_duration", "--modify-window を使ってください")
 
 	fs.IntVar(&copyOpt.retry, "retry", 3, "1ファイルの転送に失敗したときの再試行回数（0で無効）")
 	fs.DurationVar(&copyOpt.retryWait, "retry-wait", 5*time.Second, "再試行までの待ち時間")

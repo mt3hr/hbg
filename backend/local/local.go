@@ -45,7 +45,7 @@ func (s *Storage) Features() *storage.Features {
 	return &storage.Features{
 		// NTFS は 100ns、ext4 や APFS は 1ns。
 		// FAT/exFAT は 2s だが、実行時に判別する手段がないため
-		// 利用者に --update_duration で指定してもらう。
+		// 利用者に --modify-window で指定してもらう。
 		ModTimePrecision: 100 * time.Nanosecond,
 		CanSetModTime:    true,
 		CaseInsensitive:  os.PathSeparator == '\\',

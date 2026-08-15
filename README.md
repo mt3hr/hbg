@@ -34,6 +34,7 @@ GitHub の Releases から、お使いの環境向けのファイルを取得し
 `hbg`（Windows なら `hbg.exe`）をパスの通った場所に置いてください。
 
 Windows・macOS・Linux の 64bit 版と、macOS・Linux の arm64 版があります。
+Android 版は配布していないので、下の「Android 向けにビルドするとき」を参照してください。
 
 ### ソースから
 
@@ -42,6 +43,27 @@ go install github.com/mt3hr/hbg/cmd/hbg@latest
 ```
 
 Go 1.25 以上が必要です。
+
+### Android 向けにビルドするとき
+
+**`CGO_ENABLED=1` が必須です。** 同梱のスクリプトを使ってください。
+
+```console
+export NDK=$HOME/Android/ndk/android-ndk-r26d
+./scripts/build_android_arm64.sh
+```
+
+必要なものは Android NDK と、Linux（WSL を含む）です。NDK に同梱されている
+クロスコンパイラが Linux 版しかないため、Windows からはビルドできません。
+
+**cgo を切ると、壊れたことに気づけないバイナリができます。** ビルドは通り、
+ARM64 の ELF もでき、`hbg version` も動きます。動かないのは名前解決だけです。
+Android には `/etc/resolv.conf` が無いので、純 Go のリゾルバは `127.0.0.1:53` を
+引きにいって connection refused になります。Go は android では cgo のリゾルバを
+使う作りですが、`CGO_ENABLED=0` でクロスビルドするとそれが入りません。
+
+スクリプトは cgo が実際に入っているかまで確かめてから終わるので、
+この状態のものができたときは失敗します。
 
 ## はじめて使う
 

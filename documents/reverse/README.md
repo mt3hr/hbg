@@ -68,6 +68,10 @@ golangci-lint run
 
 Go 1.25 以上が必要です。
 
+Android 向けにビルドする場合は `CGO_ENABLED=1` が必須で、Linux と NDK が要ります。
+`scripts/build_android_arm64.sh` を使ってください。理由は
+[README の「Android 向けにビルドするとき」](../../README.md#android-向けにビルドするとき)に書いてあります。
+
 `go.mod` / `go.sum` はリポジトリで管理しています。依存を変えたら
 `go mod tidy` の結果も一緒にコミットしてください（CI で差分を検査しています）。
 

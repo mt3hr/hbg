@@ -62,7 +62,7 @@ type Storage struct {
 // New は保存済みのトークンを使って Dropbox に接続します。
 //
 // トークンがない場合はエラーを返すので、hbg auth login <名前> で
-// 認証してください。AccessToken が設定されている場合はそれを直接使います。
+// 認証してください。
 func New(ctx context.Context, cfg Config) (*Storage, error) {
 	client, err := newClient(ctx, cfg)
 	if err != nil {

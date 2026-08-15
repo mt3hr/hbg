@@ -121,15 +121,9 @@ func buildComparePolicy() (transfer.ComparePolicy, error) {
 		return transfer.ComparePolicy{}, fmt.Errorf("--compare の指定が不正です: %w", err)
 	}
 
-	// 古い名前が使われていればそちらを尊重する。
-	window := copyOpt.modifyWindow
-	if window == 0 {
-		window = copyOpt.updateDuration
-	}
-
 	return transfer.ComparePolicy{
 		Fields:         fields,
-		ModifyWindow:   window,
+		ModifyWindow:   copyOpt.modifyWindow,
 		Update:         copyOpt.update && !copyOpt.overwrite,
 		IgnoreExisting: copyOpt.ignoreExisting,
 	}, nil

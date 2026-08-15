@@ -70,10 +70,6 @@ linters:
       - path: internal/cli/cmd\.go
         linters: [errcheck, unparam]
 
-      # P3 で新インターフェースへ移行
-      - path: localfilesystem\.go
-        linters: [errcheck, unparam]
-
       - path: internal/cli/(list|remove)\.go
         linters: [errcheck, unparam]
 

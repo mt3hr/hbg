@@ -66,13 +66,3 @@ storages:
 
 クライアント シークレットは不要です（PKCE を使います）。
 
-### 長期トークンを直接使う
-
-アプリコンソールで発行した長期トークンを使うこともできます。
-
-```yaml
-storages:
-  - name: dropbox
-    type: dropbox
-    access_token: ${DROPBOX_TOKEN}
-```

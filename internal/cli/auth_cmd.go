@@ -76,9 +76,8 @@ func loginTo(ctx context.Context, entry backend.Entry, opts auth.LoginOptions) e
 	switch entry.Type {
 	case dropbox.Type:
 		return dropbox.Login(ctx, dropbox.Config{
-			Name:        entry.Name,
-			AppKey:      entry.Params.Get("app_key"),
-			AccessToken: entry.Params.Get("access_token"),
+			Name:   entry.Name,
+			AppKey: entry.Params.Get("app_key"),
 		}, opts)
 	case googledrive.Type:
 		return googledrive.Login(ctx, googledrive.Config{

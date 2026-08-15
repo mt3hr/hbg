@@ -20,10 +20,6 @@ type Config struct {
 	// AppKey は Dropbox アプリのキーです。
 	// 空の場合は環境変数やビルド時に埋め込まれた値が使われます。
 	AppKey string
-	// AccessToken を指定すると、OAuth の認可を行わずこのトークンを使います。
-	// アプリコンソールで発行した長期トークンを使う場合に指定してください。
-	// 設定ファイルへの直接記述は避け、${環境変数} での指定を推奨します。
-	AccessToken string
 }
 
 // oauth2Config は設定から oauth2.Config を組み立てます。
@@ -102,14 +98,6 @@ func retryPolicy() *retry.Policy {
 
 // newClient は Dropbox API のクライアントを作ります。
 func newClient(ctx context.Context, cfg Config) (dbx.ContextClient, error) {
-	// 長期トークンが明示されている場合はそれを使い、認可は行わない。
-	if cfg.AccessToken != "" {
-		return dbx.NewContext(dbxapi.Config{
-			Token:       cfg.AccessToken,
-			RetryPolicy: retryPolicy(),
-		}), nil
-	}
-
 	oauthCfg, err := oauth2Config(cfg)
 	if err != nil {
 		return nil, err
@@ -122,11 +110,6 @@ func newClient(ctx context.Context, cfg Config) (dbx.ContextClient, error) {
 			return nil, fmt.Errorf("dropbox %q は未認証です。hbg auth login %s で認証してください", cfg.Name, cfg.Name)
 		}
 		return nil, err
-	}
-
-	if tok.RefreshToken == "" {
-		return nil, fmt.Errorf("dropbox %q のトークンは更新できない古い形式です。"+
-			"hbg auth login %s で認証をやり直してください", cfg.Name, cfg.Name)
 	}
 
 	// アクセストークンは4時間ほどで失効するが、リフレッシュトークンから

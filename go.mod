@@ -8,7 +8,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/credentials v1.19.35
 	github.com/aws/aws-sdk-go-v2/feature/s3/manager v1.22.42
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.107.1
-	github.com/aws/smithy-go v1.27.7
+	github.com/aws/smithy-go v1.27.8
 	github.com/cloudsoda/go-smb2 v0.0.0-20260803221621-0b399b9d036c
 	github.com/dropbox/dropbox-sdk-go-unofficial/v6 v6.6.0
 	github.com/ergochat/readline v0.1.3

@@ -13,7 +13,7 @@ require (
 	github.com/dropbox/dropbox-sdk-go-unofficial/v6 v6.6.0
 	github.com/ergochat/readline v0.1.3
 	github.com/fclairamb/ftpserverlib v0.32.3
-	github.com/gobwas/glob v0.2.3
+	github.com/gobwas/glob v1.0.0
 	github.com/jlaffaye/ftp v0.2.2
 	github.com/mattn/go-runewidth v0.0.27
 	github.com/pkg/sftp v1.13.11

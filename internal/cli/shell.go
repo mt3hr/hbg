@@ -345,6 +345,7 @@ var (
 					readline.PcItem("cp", readline.PcItemDynamic(listStorageFilesFunc)),
 
 					readline.PcItem("rm", readline.PcItemDynamic(listFilesFunc(currentStorage, false))),
+					readline.PcItem("hash", readline.PcItemDynamic(listFilesFunc(currentStorage, false))),
 					readline.PcItem("exit"),
 				)
 
@@ -438,6 +439,32 @@ var (
 							fmt.Println(err.Error())
 							continue Loop
 						}
+					}
+				}
+				if line == "hash" || strings.HasPrefix(line, "hash ") {
+					target := currentPath
+					if arg := strings.TrimSpace(strings.TrimPrefix(line, "hash")); arg != "" {
+						target, err = pathResolute(currentStorage, arg, false)
+						if err != nil {
+							fmt.Println(err.Error())
+							continue Loop
+						}
+					}
+					workers := config.DefaultWorker
+					if workers < 1 {
+						workers = defaultWorker
+					}
+					failed, err := printHashes(ctx, os.Stdout, os.Stdout, currentStorage, target, hashOptions{
+						hashType: hbgstorage.SHA256,
+						workers:  workers,
+						progress: isTerminalFile(os.Stdout),
+					})
+					if err != nil {
+						fmt.Println(err.Error())
+						continue Loop
+					}
+					if failed > 0 {
+						fmt.Printf("%d件のハッシュを求められませんでした\n", failed)
 					}
 				}
 				if strings.HasPrefix(line, "cp") {

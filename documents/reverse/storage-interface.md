@@ -120,6 +120,14 @@ type SetModTimer interface {
 | `storage.Move` | `Mover` | コピーしてから削除 |
 | `storage.PurgeAll` | `Purger` | 後行順にたどって1件ずつ |
 | `storage.GetHash` | `FileInfo.Hashes` → `Hasher` | `ErrUnsupported` |
+| `storage.HashFile` | `GetHash` と同じ | 内容を読み出して計算 |
+| `storage.HashTree` | 中のファイルごとに `HashFile` | （同左） |
+
+`GetHash` は比較（`--checksum`）用で、読み出しには落ちません。比較のためだけに
+全件を転送しないためです。`hbg hash` のように「どうしても値が要る」場面では
+`HashFile` を使います。`HashTree` はフォルダの下を並行してたどり、
+「`<ハッシュ>  <相対パス>`」の一覧と、それを同じ種類でハッシュしたまとめの値を返します。
+空のディレクトリはどちらにも入りません。
 
 ## `FileInfo` と `ObjectMeta`
 

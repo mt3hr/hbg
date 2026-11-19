@@ -161,6 +161,7 @@ func init() {
 	rootCmd.AddCommand(configCmd)
 	rootCmd.AddCommand(authCmd)
 	rootCmd.AddCommand(checkCmd)
+	rootCmd.AddCommand(hashCmd)
 	rootCmd.AddCommand(completionCmd)
 
 	rootPf := rootCmd.PersistentFlags()
